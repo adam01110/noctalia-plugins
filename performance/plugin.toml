@@ -1,0 +1,48 @@
+id = "adam0/performance"
+name = "Performance Mode"
+version = "1.1.0"
+plugin_api = 28
+author = "adam0"
+license = "MIT"
+icon = "rocket"
+description = "Toggle reduced-resource settings for Noctalia and Hyprland."
+dependencies = ["performance-mode"]
+
+[[setting]]
+key = "command"
+type = "string"
+label_key = "settings.command.label"
+description_key = "settings.command.description"
+default = "performance-mode"
+
+[[widget]]
+id = "toggle"
+entry = "toggle.luau"
+
+[widget.actions]
+left = "plugin adam0/performance:toggle focused toggle"
+right = "plugin adam0/performance:toggle focused refresh"
+
+[[widget.setting]]
+key = "enabled_glyph"
+type = "glyph"
+label_key = "settings.enabled_glyph.label"
+default = "rocket"
+
+[[widget.setting]]
+key = "disabled_glyph"
+type = "glyph"
+label_key = "settings.disabled_glyph.label"
+default = "rocket-off"
+
+[[widget.setting]]
+key = "enabled_tooltip"
+type = "string"
+label_key = "settings.enabled_tooltip.label"
+default = "Disable performance mode"
+
+[[widget.setting]]
+key = "disabled_tooltip"
+type = "string"
+label_key = "settings.disabled_tooltip.label"
+default = "Enable performance mode"

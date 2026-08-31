@@ -1,0 +1,143 @@
+id = "avivbintangaringga/nix-monitor"
+name = "Nix Monitor"
+version = "2.0.0"
+plugin_api = 28
+icon = "package"
+author = "avivbintangaringga"
+description = "NixOS generations and store statistics monitor."
+tags = ["nixos", "utility"]
+dependencies = [
+  "awk",
+  "du",
+  "echo",
+  "grep",
+  "kill",
+  "nix",
+  "nix-store",
+  "nixos-rebuild",
+  "pkill",
+  "read",
+  "tail",
+  "wc",
+]
+license = "MIT"
+
+[[widget]]
+id = "nix-monitor"
+entry = "widget.luau"
+
+[[widget.setting]]
+key = "glyph"
+type = "glyph"
+label_key = "settings.widget.glyph.label"
+default = "package"
+
+[[widget.setting]]
+key = "show_text"
+type = "bool"
+label_key = "settings.widget.show_text.label"
+default = false
+
+[[widget.setting]]
+key = "text"
+type = "string"
+label_key = "settings.widget.text.label"
+default = "Nix"
+
+[[setting]]
+key = "generation_check_interval"
+type = "int"
+label_key = "settings.generation_check_interval.label"
+description_key = "settings.generation_check_interval.description"
+default = 60
+min = 1
+
+[[setting]]
+key = "system_stats_check_mode"
+type = "select"
+label_key = "settings.system_stats_check_mode.label"
+description_key = "settings.system_stats_check_mode.description"
+options = [
+  { value = "off", label_key = "settings.option.system_stats_check_mode.off" },
+  { value = "on_interval", label_key = "settings.option.system_stats_check_mode.on_interval" },
+  { value = "on_start", label_key = "settings.option.system_stats_check_mode.on_start" },
+]
+default = "on_interval"
+
+[[setting]]
+key = "system_stats_check_interval"
+type = "int"
+label_key = "settings.system_stats_check_interval.label"
+description_key = "settings.system_stats_check_interval.description"
+default = 60
+min = 5
+
+[[setting]]
+key = "system_stats_check_duration_threshold"
+type = "int"
+label_key = "settings.system_stats_check_duration_threshold.label"
+description_key = "settings.system_stats_check_duration_threshold.description"
+default = 15
+min = 1
+
+[[setting]]
+key = "panel_card_color"
+type = "color"
+label_key = "settings.panel_card_color.label"
+default = "surface_variant"
+
+[[setting]]
+key = "panel_card_opacity"
+type = "int"
+label_key = "settings.panel_card_opacity.label"
+default = 70
+min = 0
+max = 100
+
+[[setting]]
+key = "optimize_command"
+type = "string"
+label_key = "settings.optimize_command.label"
+description_key = "settings.optimize_command.description"
+default = "nix-store --optimise -vv"
+
+[[setting]]
+key = "clean_command"
+type = "string"
+label_key = "settings.clean_command.label"
+description_key = "settings.clean_command.description"
+default = "nix-collect-garbage -d"
+
+[[setting]]
+key = "hide_optimize_button"
+type = "bool"
+label_key = "settings.hide_optimize_button.label"
+description_key = "settings.hide_optimize_button.description"
+default = false
+
+[[setting]]
+key = "hide_clean_button"
+type = "bool"
+label_key = "settings.hide_clean_button.label"
+description_key = "settings.hide_clean_button.description"
+default = false
+
+[[setting]]
+key = "close_on_enter"
+type = "bool"
+label_key = "settings.close_on_enter.label"
+description_key = "settings.close_on_enter.description"
+default = true
+
+[[panel]]
+id = "panel"
+entry = "panel.luau"
+placement = "floating"
+position = "auto"
+open_near_click = true
+width = 430
+height = 220
+
+[[service]]
+id = "service"
+entry = "service.luau"

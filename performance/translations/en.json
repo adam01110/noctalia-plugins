@@ -1,0 +1,8 @@
+{
+	"settings.command.description": "Executable used to control performance mode.",
+	"settings.command.label": "Command",
+	"settings.disabled_glyph.label": "Disabled glyph",
+	"settings.disabled_tooltip.label": "Disabled tooltip",
+	"settings.enabled_glyph.label": "Enabled glyph",
+	"settings.enabled_tooltip.label": "Enabled tooltip"
+}

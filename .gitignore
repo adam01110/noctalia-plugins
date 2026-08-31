@@ -1,0 +1,6 @@
+# keep-sorted start
+noctalia.d.luau
+.direnv
+.rumdl_cache
+result*
+# keep-sorted end
