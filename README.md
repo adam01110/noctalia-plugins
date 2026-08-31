@@ -1,3 +1,7 @@
+<!-- rumdl-disable MD033 MD041 -->
+
+<div align="center">
+
 # noctalia-plugins
 
 Customized [Noctalia](https://github.com/noctalia-dev/noctalia) plugins used
@@ -7,6 +11,10 @@ by my system configuration.
 [![Nix](https://img.shields.io/badge/Nix-flake-689d6a?style=flat-square&labelColor=504945&logo=nixos&logoColor=ebdbb2)](https://nixos.org)
 
 [Plugins](#plugins) - [Usage](#usage) - [Dependencies](#dependencies) - [Development](#development)
+
+</div>
+
+<!-- rumdl-enable MD033 MD041 -->
 
 This is my small collection of Noctalia plugins. Everything except Performance
 Mode is a community plugin fork with local changes for my setup.
