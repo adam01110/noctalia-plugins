@@ -1,7 +1,7 @@
 id = "kenn/keybind-cheatsheet"
 name = "Keybind Cheatsheet"
 version = "0.2.3"
-plugin_api = 28
+plugin_api = 30
 author = "kenn"
 license = "MIT"
 dependencies = ["hyprctl"]

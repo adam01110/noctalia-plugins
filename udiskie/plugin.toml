@@ -5,7 +5,7 @@
 id = "aristides/udiskie"
 name = "Udiskie Manager"
 version = "0.1.0"
-plugin_api = 28
+plugin_api = 30
 author = "aristides"
 license = "MIT"
 dependencies = ["udiskie", "udisks2", "xdg-open"]
