@@ -23,6 +23,9 @@ remains read-only. The plugin receives no authentication tokens. Albedo’s ordi
 `/auth` read may assign missing stable account IDs and metadata in its credentials
 file.
 
+Older helpers that reject the startup flag are retried without it. Monitoring
+still works; automatic startup requires an updated helper.
+
 ## Indicator and panel
 
 - The bar shows a bare working-session count: muted at zero, primary when busy.

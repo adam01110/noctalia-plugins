@@ -3,6 +3,7 @@
 local SESSION_RANKS = { working = 1, waiting = 2, unknown = 3, idle = 4 }
 
 local inFlight = false
+local startupUnsupportedPath = nil
 local snapshot = nil
 
 local function text(value, fallback)
@@ -169,8 +170,32 @@ local function refresh()
 
     -- The helper owns authentication; argv keeps paths out of a shell.
     -- Let the process deadline expire before Noctalia's native capture timeout.
-    local accepted =
-        noctalia.runAsync({ "timeout", "12s", path, "--start-daemon" }, receiveSnapshot, 13000)
+    local requestStartup = startupUnsupportedPath ~= path
+    local argv = { "timeout", "12s", path }
+    if requestStartup then
+        argv[#argv + 1] = "--start-daemon"
+    end
+
+    local accepted = noctalia.runAsync(argv, function(result)
+        -- A plugin update can arrive before the separately packaged helper does.
+        local legacyHelper = requestStartup
+            and type(result) == "table"
+            and result.exitCode == 2
+            and (result.stdout == nil or result.stdout == "")
+            and result.timedOut ~= true
+            and result.stdoutTruncated ~= true
+            and result.stderrTruncated ~= true
+            and type(result.stderr) == "string"
+            and string.find(result.stderr, "unrecognized arguments: --start-daemon", 1, true)
+                ~= nil
+        if legacyHelper then
+            startupUnsupportedPath = path
+            inFlight = false
+            refresh()
+            return
+        end
+        receiveSnapshot(result)
+    end, 13000)
     if accepted == false then
         inFlight = false
         failure("Monitor could not be started")

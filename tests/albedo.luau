@@ -527,6 +527,63 @@ for _, case in ipairs({
     tooltipContains("Bar · Session: " .. tostring(case.remaining) .. "%")
 end
 
+-- Older helpers reject the new flag on stderr; retry without publishing false offline data.
+local beforeCompatibility = panelRenders
+request()
+local oldHelper = pending
+pending = nil
+oldHelper({
+    exitCode = 2,
+    stdout = "",
+    stderr = "albedo-monitor: error: unrecognized arguments: --start-daemon\n",
+})
+assert(#command == 3 and command[3] == config.monitorPath)
+assert(pending ~= nil, "Retry the legacy helper immediately")
+assert(panelRenders == beforeCompatibility, "Do not flash an offline snapshot on negotiation")
+reply(sample())
+assert(state.snapshot.online and not state.snapshot.stale)
+assert(lastBar.children[2].props.text == "2")
+request()
+assert(#command == 3, "Remember compatibility for the installed helper path")
+reply(sample())
+local originalPath = config.monitorPath
+config.monitorPath = "/tmp/new monitor/albedo-monitor"
+request()
+assert(#command == 4 and command[4] == "--start-daemon", "Reprobe a different helper")
+reply(sample())
+config.monitorPath = originalPath
+
+for index, failure in ipairs({
+    { exitCode = 2, stdout = "", stderr = "unrecognized arguments: --timeout" },
+    {
+        exitCode = 2,
+        stdout = "",
+        stderr = "unrecognized arguments: --start-daemon",
+        stderrTruncated = true,
+    },
+    {
+        exitCode = 2,
+        stdout = "",
+        stderr = "unrecognized arguments: --start-daemon",
+        timedOut = true,
+    },
+}) do
+    config.monitorPath = "/tmp/modern-monitor-" .. tostring(index)
+    local beforeFailure = started
+    request()
+    local callback = pending
+    pending = nil
+    callback(failure)
+    assert(
+        pending == nil and started == beforeFailure + 1,
+        "Do not retry unrelated or incomplete failures"
+    )
+    assert(not state.snapshot.online)
+end
+config.monitorPath = originalPath
+request()
+reply(sample())
+
 local waitingOnly = sample()
 waitingOnly.sessions = {
     { id = "hidden-idle", title = "Hidden idle", status = "idle" },
