@@ -39,6 +39,8 @@ local function sessionRow(session, scale)
         padding = 10,
         fill = "surface_variant/0.58",
         radius = 10 * scale,
+        border = "outline",
+        borderWidth = 1,
     }, {
         ui.row({ justify = "space_between", align = "center", gap = 8 }, {
             ui.label({
@@ -164,6 +166,8 @@ local function accountRow(account, index, stale, scale)
         padding = 12,
         fill = "surface_variant/0.58",
         radius = 12 * scale,
+        border = "outline",
+        borderWidth = 1,
     }, children)
 end
 
@@ -264,16 +268,18 @@ local function render()
                     color = "on_surface",
                 }),
             }),
-            ui.row({ gap = 2 }, {
+            ui.row({ gap = 6 }, {
                 ui.button({
                     glyph = "refresh",
-                    variant = "ghost",
+                    variant = "outline",
+                    controlSize = "sm",
                     tooltip = "Read daemon snapshot",
                     onClick = "onRefresh",
                 }),
                 ui.button({
                     glyph = "x",
-                    variant = "ghost",
+                    variant = "outline",
+                    controlSize = "sm",
                     tooltip = "Close",
                     onClick = "onCloseClicked",
                 }),

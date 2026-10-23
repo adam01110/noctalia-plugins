@@ -3,8 +3,8 @@
 local hostOs = os
 local now = 1760000000
 local os = {
-    time = function()
-        return now
+    time = function(date)
+        return date ~= nil and hostOs.time(date) or now
     end,
     date = hostOs.date,
 }
@@ -377,13 +377,21 @@ for _, case in ipairs({
         local key = node.props.key or ""
         if string.sub(key, 1, 8) == "session-" then
             assert(node.props.radius == 10 * scale and node.props.fill == "surface_variant/0.58")
+            assert(node.props.border == "outline" and node.props.borderWidth == 1)
             cards = cards + 1
         elseif string.sub(key, 1, 8) == "account-" then
             assert(node.props.radius == 12 * scale and node.props.padding == 12)
+            assert(node.props.border == "outline" and node.props.borderWidth == 1)
             cards = cards + 1
         end
     end
     assert(cards == 5, "Three active session cards and two account cards")
+    local buttons = collectNodes(lastPanel, "button")
+    assert(#buttons == 2)
+    for _, button in ipairs(buttons) do
+        assert(button.props.variant == "outline" and button.props.controlSize == "sm")
+    end
+    assert(buttons[1].props.onClick == "onRefresh" and buttons[2].props.onClick == "onCloseClicked")
 end
 
 -- Keep all accounts, but show only the tightest healthy window per account.
@@ -649,6 +657,50 @@ for _, epoch in ipairs({ "invalid", "1760000000", true, math.huge, -math.huge, 0
     invalidDeadline.accounts[1].windows[1].resets_at_epoch = epoch
     request()
     reply(invalidDeadline)
+    assert(state.snapshot.accounts[1].windows[1].resets_at_epoch == nil)
+    contains(lastPanel, "Reset unavailable")
+end
+
+-- Legacy snapshots have a reset ISO string but no numeric deadline field.
+for _, case in ipairs({
+    { value = "2026-10-23T12:00:00Z", epoch = 1792756800 },
+    { value = "2026-10-23T14:00:00+02:00", epoch = 1792756800 },
+    { value = "2026-10-23T05:00:00-07:00", epoch = 1792756800 },
+    { value = "2026-10-23T12:00:00.123Z", epoch = 1792756800 },
+    { value = "2026-03-29T01:30:00Z", epoch = 1774747800 },
+    { value = "2026-10-25T01:30:00Z", epoch = 1792891800 },
+}) do
+    local legacy = sample()
+    legacy.accounts[1].windows[1].resets_at_epoch = nil
+    legacy.accounts[1].windows[1].resets_at = case.value
+    request()
+    reply(legacy)
+    assert(
+        state.snapshot.accounts[1].windows[1].resets_at_epoch == case.epoch,
+        "Legacy reset parsing changed"
+    )
+    assert(not string.find(texts(lastPanel), "Reset unavailable", 1, true))
+end
+local relativeLegacy = sample()
+relativeLegacy.accounts[1].windows[1].resets_at_epoch = nil
+relativeLegacy.accounts[1].windows[1].resets_at = hostOs.date("!%Y-%m-%dT%H:%M:%SZ", now + 7200)
+request()
+reply(relativeLegacy)
+contains(lastPanel, "Resets in 2h 0m")
+
+for _, value in ipairs({
+    "invalid",
+    "2026-02-30T12:00:00Z",
+    "2026-10-23T25:00:00Z",
+    "2026-10-23T12:00:00",
+    "2026-10-23T12:00:00+25:00",
+    "0000-01-01T00:00:00Z",
+}) do
+    local invalid = sample()
+    invalid.accounts[1].windows[1].resets_at_epoch = nil
+    invalid.accounts[1].windows[1].resets_at = value
+    request()
+    reply(invalid)
     assert(state.snapshot.accounts[1].windows[1].resets_at_epoch == nil)
     contains(lastPanel, "Reset unavailable")
 end

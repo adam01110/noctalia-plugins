@@ -26,6 +26,52 @@ local function normalizeSession(session)
     }
 end
 
+-- Older helpers only provide ISO dates; use the host calendar rather than reimplementing it.
+local function legacyResetEpoch(value)
+    if type(value) ~= "string" or #value > 64 then
+        return nil
+    end
+    local year, month, day, hour, minute, second, zone =
+        value:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)T(%d%d):(%d%d):(%d%d)(.*)$")
+    if year == nil or tonumber(year) < 1 then
+        return nil
+    end
+    zone = zone:gsub("^%.%d+", "")
+    local offset = 0
+    if zone ~= "Z" then
+        local sign, hours, minutes = zone:match("^([%+%-])(%d%d):(%d%d)$")
+        if sign == nil or tonumber(hours) > 23 or tonumber(minutes) > 59 then
+            return nil
+        end
+        offset = (tonumber(hours) * 3600 + tonumber(minutes) * 60) * (sign == "+" and 1 or -1)
+    end
+
+    local ok, epoch = pcall(function()
+        local date = {
+            year = tonumber(year),
+            month = tonumber(month),
+            day = tonumber(day),
+            hour = tonumber(hour),
+            min = tonumber(minute),
+            sec = tonumber(second),
+            isdst = false,
+        }
+        -- Force standard time on both conversions so DST does not shift UTC input.
+        local guess = os.time(table.clone(date))
+        local utc = os.date("!*t", guess)
+        utc.isdst = false
+        local universal = guess + (guess - os.time(utc))
+        local check = os.date("!*t", universal)
+        for _, field in ipairs({ "year", "month", "day", "hour", "min", "sec" }) do
+            if check[field] ~= date[field] then
+                return nil
+            end
+        end
+        return universal - offset
+    end)
+    return ok and epoch or nil
+end
+
 local function normalizeWindow(window)
     local remaining = tonumber(window.remaining_percent)
 
@@ -43,6 +89,9 @@ local function normalizeWindow(window)
         or math.abs(resetsAtEpoch) == math.huge
     then
         resetsAtEpoch = nil
+    end
+    if window.resets_at_epoch == nil then
+        resetsAtEpoch = legacyResetEpoch(window.resets_at)
     end
 
     return {
