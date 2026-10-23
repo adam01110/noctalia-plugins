@@ -59,4 +59,18 @@ with tempfile.TemporaryDirectory(prefix="noctalia-plugin-tests-") as directory:
     result = subprocess.run(
         [sys.argv[1] if len(sys.argv) > 1 else "luau", str(codex_test)], check=False
     )
+    if result.returncode:
+        sys.exit(result.returncode)
+    albedo_test = Path(directory) / "albedo.luau"
+    source = (ROOT / "tests/albedo.luau").read_text()
+    for marker, filename in (
+        ("SERVICE_SOURCE", "service.luau"),
+        ("STATUS_SOURCE", "status.luau"),
+        ("PANEL_SOURCE", "panel.luau"),
+    ):
+        source = source.replace("-- " + marker, (ROOT / "albedo-monitor" / filename).read_text())
+    albedo_test.write_text(source)
+    result = subprocess.run(
+        [sys.argv[1] if len(sys.argv) > 1 else "luau", str(albedo_test)], check=False
+    )
     sys.exit(result.returncode)

@@ -16,20 +16,21 @@ by my system configuration.
 
 <!-- rumdl-enable MD033 MD041 -->
 
-This is my small collection of community Noctalia plugin forks with local
-changes for my setup.
+This collection contains community Noctalia plugin forks and a custom Albedo
+monitor.
 
 ## Plugins
 
 | Plugin | ID | Origin |
 | --- | --- | --- |
+| [Albedo Monitor](./albedo-monitor) | `adam0/albedo-monitor` | Custom plugin, inspired by [Bloom](https://noctalia.dev/plugins/community/bloom) |
 | [CodexBar Meter](./codexbar-meter) | `salemsayed/codexbar-meter` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/codexbar-meter) |
 | [Keybind Cheatsheet](./keybind-cheatsheet) | `kenn/keybind-cheatsheet` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/keybind-cheatsheet) |
 | [Nix Monitor](./nix-monitor) | `avivbintangaringga/nix-monitor` | [community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/nix-monitor) |
 | [Udiskie Manager](./udiskie) | `aristides/udiskie` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/udiskie) |
 
-Every plugin is a fork. Upstream plugin IDs and author
-identities are retained so those forks remain clearly attributable.
+Forks retain their upstream plugin IDs and author identities. Albedo Monitor
+uses its own ID and reads Albedo directly rather than Claude Code hooks.
 
 ## Usage
 
@@ -63,6 +64,7 @@ external tools are:
 
 | Plugin | Commands |
 | --- | --- |
+| Albedo Monitor | `albedo-monitor` from albedo-suite, `timeout` |
 | CodexBar Meter | `codexbar`, `timeout` |
 | Keybind Cheatsheet | `hyprctl` |
 | Nix Monitor | `nix`, `nix-store`, `nixos-rebuild`, plus standard shell utilities |

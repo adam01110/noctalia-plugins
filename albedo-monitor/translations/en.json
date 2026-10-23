@@ -1,0 +1,12 @@
+{
+	"settings": {
+		"monitor_path": {
+			"label": "Monitor command",
+			"description": "Path to albedo-monitor from albedo-suite. Credentials stay in the helper."
+		},
+		"refresh_interval": {
+			"label": "Refresh interval (seconds)",
+			"description": "Read daemon snapshots; provider quotas follow the daemon\u2019s polling cadence."
+		}
+	}
+}

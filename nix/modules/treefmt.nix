@@ -1,7 +1,7 @@
 {inputs, ...}: {
   imports = [inputs.treefmt-nix.flakeModule];
 
-  perSystem = _: {
+  perSystem = {pkgs, ...}: {
     treefmt = {
       programs = {
         # keep-sorted start
@@ -23,6 +23,17 @@
         stylua.enable = true;
         taplo.enable = true;
         # keep-sorted end
+      };
+
+      settings.formatter.albedo-luau = {
+        command = "${pkgs.stylua}/bin/stylua";
+        options = ["--config-path" "${../../albedo-monitor/.stylua.toml}"];
+        includes = [
+          # keep-sorted start
+          "albedo-monitor/*.luau"
+          "tests/albedo.luau"
+          # keep-sorted end
+        ];
       };
 
       projectRootFile = "flake.nix";

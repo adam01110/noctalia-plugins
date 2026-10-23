@@ -12,6 +12,12 @@ References:
 - [Noctalia v5.3.0](https://github.com/noctalia-dev/noctalia/releases/tag/v5.3.0)
 - [Reviewed community snapshot](https://github.com/noctalia-dev/community-plugins/tree/a5b079de458e68874a3222eeab3345d8d3d28db8)
 
+## Custom plugin
+
+**Albedo Monitor** (`adam0/albedo-monitor`) is an original API-34 plugin inspired
+by Bloom’s session and usage indicator. It uses an albedo-suite helper and the
+Albedo daemon, not Bloom’s code or Claude Code hooks.
+
 ## Fork changes
 
 - **CodexBar Meter:** ported upstream's compact/standard/tall panel selection.
@@ -45,4 +51,6 @@ nix flake check --no-update-lock-file
 The isolated Luau tests cover the five upstream parser fixture cases, a
 180-binding staged Niri refresh, last-good recovery after a failed refresh,
 progressive panel opening/closing, keyboard names, and CodexBar panel tiers.
+Albedo checks cover the poller, literal command arguments, active/waiting
+subagents, quota windows, stale data, failure recovery, and bounded panel lists.
 They do not exercise compositor surfaces or real device/rebuild actions.
