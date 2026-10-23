@@ -35,10 +35,20 @@ local function normalizeWindow(window)
         remaining = nil
     end
 
+    local resetsAtEpoch = window.resets_at_epoch
+    if
+        type(resetsAtEpoch) ~= "number"
+        or resetsAtEpoch ~= resetsAtEpoch
+        or math.abs(resetsAtEpoch) == math.huge
+    then
+        resetsAtEpoch = nil
+    end
+
     return {
         label = text(window.label, "Limit"),
         remaining_percent = remaining,
         resets_at = text(window.resets_at),
+        resets_at_epoch = resetsAtEpoch,
         observed_at = text(window.observed_at),
         status = text(window.status),
         stale = window.stale ~= false,
@@ -159,7 +169,8 @@ local function refresh()
 
     -- The helper owns authentication; argv keeps paths out of a shell.
     -- Let the process deadline expire before Noctalia's native capture timeout.
-    local accepted = noctalia.runAsync({ "timeout", "12s", path }, receiveSnapshot, 13000)
+    local accepted =
+        noctalia.runAsync({ "timeout", "12s", path, "--start-daemon" }, receiveSnapshot, 13000)
     if accepted == false then
         inFlight = false
         failure("Monitor could not be started")

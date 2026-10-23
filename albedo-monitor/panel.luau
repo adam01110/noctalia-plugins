@@ -3,8 +3,6 @@
 local SESSION_COLORS = {
     working = "primary",
     waiting = "tertiary",
-    idle = "on_surface_variant",
-    unknown = "on_surface_variant",
 }
 
 local opened = false
@@ -25,9 +23,9 @@ local function section(title, count)
     })
 end
 
-local function sessionRow(session, stale)
-    local color = stale and "on_surface_variant" or SESSION_COLORS[session.status]
-    local status = stale and "last known: " .. session.status or session.status
+local function sessionRow(session, scale)
+    local color = SESSION_COLORS[session.status]
+    local status = session.status
     local location = session.workspace
     if location == "" then
         location = "Unknown workspace"
@@ -35,7 +33,13 @@ local function sessionRow(session, stale)
 
     local title = (session.parent_id ~= "" and "↳ " or "") .. session.title
 
-    return ui.column({ key = "session-" .. session.id, gap = 3, paddingV = 7 }, {
+    return ui.column({
+        key = "session-" .. session.id,
+        gap = 5,
+        padding = 10,
+        fill = "surface_variant/0.58",
+        radius = 10 * scale,
+    }, {
         ui.row({ justify = "space_between", align = "center", gap = 8 }, {
             ui.label({
                 text = title,
@@ -57,9 +61,31 @@ local function sessionRow(session, stale)
     })
 end
 
+-- Epochs come from the helper's timezone-aware datetime parser.
+local function resetCountdown(epoch)
+    if epoch == nil then
+        return "Reset unavailable"
+    end
+    local seconds = epoch - os.time()
+    if seconds <= 0 then
+        return "Resetting now"
+    end
+    local days = math.floor(seconds / 86400)
+    local hours = math.floor((seconds % 86400) / 3600)
+    local minutes = math.floor((seconds % 3600) / 60)
+    if days > 0 then
+        return string.format("Resets in %dd %dh", days, hours)
+    elseif hours > 0 then
+        return string.format("Resets in %dh %dm", hours, minutes)
+    end
+    return string.format("Resets in %dm", math.max(1, minutes))
+end
+
 local function windowRow(window, stale, radius)
     local remaining = window.remaining_percent
-    local old = stale or window.stale
+    local old = stale
+        or window.stale
+        or (window.resets_at_epoch ~= nil and window.resets_at_epoch <= os.time())
     local color = "primary"
     if old then
         color = "on_surface_variant"
@@ -67,7 +93,7 @@ local function windowRow(window, stale, radius)
         color = "error"
     end
 
-    local value = remaining ~= nil and (tostring(math.floor(remaining)) .. "% left") or "Unknown"
+    local value = remaining ~= nil and (tostring(math.floor(remaining)) .. "%") or "Unknown"
     if old then
         value = value .. " · stale"
     end
@@ -89,11 +115,8 @@ local function windowRow(window, stale, radius)
         })
     end
 
-    if window.resets_at ~= "" then
-        rows[#rows + 1] = label("Resets " .. window.resets_at, 10, "on_surface_variant")
-    end
-    if window.observed_at ~= "" then
-        rows[#rows + 1] = label("Observed " .. window.observed_at, 10, "on_surface_variant")
+    if window.resets_at_epoch ~= nil or window.resets_at ~= "" then
+        rows[#rows + 1] = label(resetCountdown(window.resets_at_epoch), 10, "on_surface_variant")
     end
     if window.status ~= "" and window.status ~= "ok" then
         rows[#rows + 1] = label(window.status, 10, "on_surface_variant")
@@ -102,7 +125,7 @@ local function windowRow(window, stale, radius)
     return ui.column({ gap = 4, paddingV = 4 }, rows)
 end
 
-local function accountRow(account, index, stale, radius)
+local function accountRow(account, index, stale, scale)
     local children = {
         ui.label({
             text = account.provider,
@@ -132,10 +155,16 @@ local function accountRow(account, index, stale, radius)
                 label(tostring(#account.windows - 20) .. " more limits", 10, "on_surface_variant")
             break
         end
-        children[#children + 1] = windowRow(window, stale or account.error ~= "", radius)
+        children[#children + 1] = windowRow(window, stale or account.error ~= "", 2 * scale)
     end
 
-    return ui.column({ key = "account-" .. tostring(index), gap = 3, paddingV = 8 }, children)
+    return ui.column({
+        key = "account-" .. tostring(index),
+        gap = 8,
+        padding = 12,
+        fill = "surface_variant/0.58",
+        radius = 12 * scale,
+    }, children)
 end
 
 local function render()
@@ -156,7 +185,14 @@ local function render()
     end
 
     local content = {}
-    local sessions = ready and data.sessions or {}
+    local sessions = {}
+    if online then
+        for _, session in ipairs(data.sessions) do
+            if session.status == "working" or session.status == "waiting" then
+                sessions[#sessions + 1] = session
+            end
+        end
+    end
     local accounts = ready and data.accounts or {}
     local scale = noctalia.getSetting("shell.corner_radius_scale")
     if type(scale) ~= "number" then
@@ -171,11 +207,11 @@ local function render()
         )
     end
 
-    content[#content + 1] = section("Sessions & agents", #sessions)
+    content[#content + 1] = section("Active sessions & agents", #sessions)
     if #sessions == 0 then
         local message = "Daemon unavailable"
         if online then
-            message = data.error == "" and "No open sessions" or "Session status unavailable"
+            message = data.error == "" and "No active sessions" or "Session status unavailable"
         end
         content[#content + 1] = label(message, 12, "on_surface_variant")
     end
@@ -183,14 +219,11 @@ local function render()
     -- Bound the UI tree without hiding how much data remains outside the panel.
     for index, session in ipairs(sessions) do
         if index > 60 then
-            content[#content + 1] = label(
-                tostring(#sessions - 60) .. " more sessions · active sessions shown first",
-                11,
-                "on_surface_variant"
-            )
+            content[#content + 1] =
+                label(tostring(#sessions - 60) .. " more active sessions", 11, "on_surface_variant")
             break
         end
-        content[#content + 1] = sessionRow(session, stale)
+        content[#content + 1] = sessionRow(session, scale)
     end
 
     content[#content + 1] = ui.separator({ color = "outline", opacity = 0.2, spacing = 4 })
@@ -212,14 +245,8 @@ local function render()
                 label(tostring(#accounts - 40) .. " more accounts", 11, "on_surface_variant")
             break
         end
-        content[#content + 1] = accountRow(account, index, stale, 2 * scale)
+        content[#content + 1] = accountRow(account, index, stale, scale)
     end
-
-    content[#content + 1] = label(
-        "Provider quotas follow the daemon’s polling cadence. Unknown does not mean unlimited.",
-        10,
-        "on_surface_variant"
-    )
 
     local refreshed = "Waiting for snapshot"
     if ready and data.received_at ~= nil then
@@ -256,7 +283,7 @@ local function render()
             label(status, 10, online and "primary" or "on_surface_variant"),
             label(refreshed, 10, "on_surface_variant"),
         }),
-        ui.scroll({ key = "albedo-content", flexGrow = 1, gap = 3 }, content),
+        ui.scroll({ key = "albedo-content", flexGrow = 1, gap = 8 }, content),
     }))
 end
 

@@ -1,5 +1,14 @@
 --!nonstrict
 
+local hostOs = os
+local now = 1760000000
+local os = {
+    time = function()
+        return now
+    end,
+    date = hostOs.date,
+}
+
 -- State watchers connect the real entry scripts without starting Noctalia.
 local state, watchers = {}, {}
 local pending, command, lastBar, lastPanel, lastTooltip, selectedPanel
@@ -158,6 +167,7 @@ local function sample()
                         label = "Session",
                         remaining_percent = 63,
                         resets_at = "2026-10-17T12:00:00Z",
+                        resets_at_epoch = now + 7200,
                         observed_at = "2026-10-17T10:00:00Z",
                         stale = false,
                     },
@@ -169,22 +179,54 @@ local function sample()
     }
 end
 
+local function collectNodes(tree, kind)
+    local result = {}
+    local function visit(node)
+        if type(node) ~= "table" then
+            return
+        end
+        if node.kind == kind then
+            result[#result + 1] = node
+        end
+        for _, child in ipairs(node.children or {}) do
+            visit(child)
+        end
+    end
+    visit(tree)
+    return result
+end
+
+local function tooltipText()
+    local lines = {}
+    for _, entry in ipairs(lastTooltip) do
+        lines[#lines + 1] = entry.key .. ": " .. entry.value
+    end
+    return table.concat(lines, "\n")
+end
+
+local function tooltipContains(expected)
+    assert(string.find(tooltipText(), expected, 1, true), "Missing tooltip detail " .. expected)
+end
+
 assert(started == 1 and interval == 60000, "Default refresh must be one minute")
 assert(type(command) == "table" and command[1] == "timeout" and command[2] == "12s")
-assert(command[3] == config.monitorPath and #command == 3, "Path must stay one literal argument")
+assert(command[3] == config.monitorPath and #command == 4, "Path must stay one literal argument")
+assert(command[4] == "--start-daemon", "Widget must opt into bounded native daemon startup")
 serviceUpdate()
 assert(started == 1, "Requests must not overlap")
 contains(lastBar, "offline")
 reply(sample())
 assert(state.snapshot.sessions[1].status == "working")
-contains(lastBar, "2 active")
-contains(lastBar, "1 waiting")
-contains(lastBar, "63% left")
-contains(lastBar, "codex · one")
-contains(lastBar, "claude · two")
-contains(lastBar, "Weekly Stale")
-contains(lastBar, "Quota unavailable")
-assert(not string.find(texts(lastBar), "0% left", 1, true), "Stale quota cannot look current")
+assert(lastBar.children[2].props.text == "2" and lastBar.children[2].props.color == "primary")
+contains(lastBar, "63%")
+assert(#collectNodes(lastBar, "progress") == 1)
+assert(not string.find(texts(lastBar), " left", 1, true))
+assert(not string.find(texts(lastBar), " active", 1, true))
+assert(not string.find(texts(lastBar), "codex", 1, true), "Identity belongs in hover details")
+tooltipContains("codex · one")
+tooltipContains("claude · two")
+tooltipContains("Weekly: 0% · stale")
+assert(not string.find(texts(lastBar), "0%", 1, true), "Stale quota cannot look current")
 assert(panelRenders == 0, "Closed panels must not render")
 statusClick()
 assert(selectedPanel == "adam0/albedo-monitor:panel")
@@ -193,20 +235,27 @@ contains(lastPanel, "DAEMON ONLINE")
 contains(lastPanel, "↳ Child")
 contains(lastPanel, "quota_unavailable")
 contains(lastPanel, "Quota unavailable")
-contains(lastPanel, "0% left · stale")
-contains(lastPanel, "Resets 2026-10-17T12:00:00Z")
-contains(lastPanel, "Observed 2026-10-17T10:00:00Z")
+contains(lastPanel, "0% · stale")
+contains(lastPanel, "Resets in 2h 0m")
+assert(not string.find(texts(lastPanel), "Observed", 1, true))
+assert(not string.find(texts(lastPanel), "Unknown does not mean unlimited", 1, true))
+assert(not string.find(texts(lastPanel), "2026-10-17", 1, true))
+assert(not string.find(texts(lastPanel), "Idle", 1, true), "Idle conversations must not be listed")
+local sessionCards = 0
+for _, node in ipairs(collectNodes(lastPanel, "column")) do
+    if node.props.key and string.sub(node.props.key, 1, 8) == "session-" then
+        sessionCards = sessionCards + 1
+    end
+end
+assert(sessionCards == 3, "Show working and waiting sessions, not every conversation")
 assert(pending ~= nil, "Opening panel requests fresh snapshot")
 reply("invalid JSON", 1)
 assert(state.snapshot.stale and not state.snapshot.online)
 assert(#state.snapshot.sessions == 4, "Keep last data only as explicitly stale")
 contains(lastBar, "offline")
-assert(
-    not string.find(texts(lastBar), "2 active", 1, true),
-    "Stale sessions must not appear active"
-)
+assert(lastBar.children[2].props.text == "offline", "Stale sessions must not appear active")
 contains(lastPanel, "showing last known data")
-contains(lastPanel, "last known: working")
+assert(not string.find(texts(lastPanel), "↳ Child", 1, true), "Offline sessions are not active")
 
 request()
 reply({ version = 2, online = true, sessions = {}, accounts = {} })
@@ -231,7 +280,7 @@ assert(state.snapshot.error == "Monitor could not be started")
 accepted = true
 request()
 reply(sample())
-contains(lastBar, "2 active")
+assert(lastBar.children[2].props.text == "2" and lastBar.children[2].props.color == "primary")
 assert(state.snapshot.error == "" and not state.snapshot.stale)
 
 local partial = sample()
@@ -240,11 +289,11 @@ partial.sessions = {}
 request()
 reply(partial)
 contains(lastBar, "status unavailable")
-contains(lastBar, "Session 63% left")
+contains(lastBar, "63%")
 contains(lastPanel, "PARTIAL SNAPSHOT")
 contains(lastPanel, "Session status unavailable")
-assert(not string.find(texts(lastPanel), "No open sessions", 1, true))
-assert(not string.find(texts(lastBar), "2 active", 1, true))
+assert(not string.find(texts(lastPanel), "No active sessions", 1, true))
+assert(lastBar.children[2].props.text == "status unavailable")
 
 local malformed = sample()
 malformed.sessions = { false, {}, { id = "strange", status = "flying" } }
@@ -274,8 +323,8 @@ for i = 1, 100 do
 end
 request()
 reply(large)
-contains(lastBar, "100 active")
-contains(lastPanel, "40 more sessions")
+assert(lastBar.children[2].props.text == "100")
+contains(lastPanel, "40 more active sessions")
 onClose()
 local renders = panelRenders
 request()
@@ -284,7 +333,8 @@ assert(panelRenders == renders, "Closed panel received update")
 statusRefresh()
 assert(pending ~= nil)
 reply({ version = 1, online = true, sessions = {}, accounts = {} })
-contains(lastBar, "0 active")
+assert(lastBar.children[2].props.text == "0")
+assert(lastBar.children[2].props.color == "on_surface_variant")
 assert(not string.find(texts(lastBar), "% left", 1, true))
 config.refreshIntervalSec = 0
 serviceUpdate()
@@ -321,38 +371,22 @@ for _, case in ipairs({
     assert(settingReads == 2, "Read theme scale once each for bar and open panel")
     checkProgressRadius(lastPanel, case.radius, 2)
     checkProgressRadius(lastBar, case.radius, 1)
-end
-
-local function collectNodes(tree, kind)
-    local result = {}
-    local function visit(node)
-        if type(node) ~= "table" then
-            return
-        end
-        if node.kind == kind then
-            result[#result + 1] = node
-        end
-        for _, child in ipairs(node.children or {}) do
-            visit(child)
+    local scale = case.radius / 2
+    local cards = 0
+    for _, node in ipairs(collectNodes(lastPanel, "column")) do
+        local key = node.props.key or ""
+        if string.sub(key, 1, 8) == "session-" then
+            assert(node.props.radius == 10 * scale and node.props.fill == "surface_variant/0.58")
+            cards = cards + 1
+        elseif string.sub(key, 1, 8) == "account-" then
+            assert(node.props.radius == 12 * scale and node.props.padding == 12)
+            cards = cards + 1
         end
     end
-    visit(tree)
-    return result
+    assert(cards == 5, "Three active session cards and two account cards")
 end
 
-local function tooltipText()
-    local lines = {}
-    for _, entry in ipairs(lastTooltip) do
-        lines[#lines + 1] = entry.key .. ": " .. entry.value
-    end
-    return table.concat(lines, "\n")
-end
-
-local function tooltipContains(expected)
-    assert(string.find(tooltipText(), expected, 1, true), "Missing tooltip detail " .. expected)
-end
-
--- More than CodexBar's provider cap: every account and every fresh window stays visible.
+-- Keep all accounts, but show only the tightest healthy window per account.
 local inventory = sample()
 inventory.accounts = {}
 for index = 1, 6 do
@@ -376,19 +410,19 @@ end
 request()
 reply(inventory)
 for index = 1, 6 do
-    contains(lastBar, "codex · Account " .. tostring(index))
-    contains(lastBar, tostring(index * 10) .. "% left")
-    contains(lastBar, tostring(100 - index) .. "% left")
+    contains(lastBar, tostring(index * 10) .. "%")
+    assert(not string.find(texts(lastBar), tostring(100 - index) .. "%", 1, true))
     tooltipContains("public-" .. tostring(index))
 end
 local meters = collectNodes(lastBar, "progress")
-assert(#meters == 12, "Render all windows, not just a global or per-provider minimum")
+assert(#meters == 6, "Render one limiting window for each account")
 assert(meters[1].props.progress == 0.1 and meters[1].props.fill == "error")
-assert(meters[3].props.progress == 0.2 and meters[3].props.fill == "tertiary")
-assert(meters[7].props.progress == 0.4 and meters[7].props.fill == "primary")
+assert(meters[2].props.progress == 0.2 and meters[2].props.fill == "tertiary")
+assert(meters[4].props.progress == 0.4 and meters[4].props.fill == "primary")
 assert(meters[1].props.width == 26 and meters[1].props.height == 4)
-tooltipContains("Resets 2026-10-17T12:00:00Z")
-tooltipContains("Observed 2026-10-17T10:00:00Z")
+tooltipContains("Bar · Session:")
+tooltipContains("Weekly:")
+assert(not string.find(tooltipText(), "Observed", 1, true))
 tooltipContains("Snapshot:")
 
 local uncertain = sample()
@@ -406,19 +440,20 @@ uncertain.accounts[2].windows = {
 uncertain.accounts_error = "accounts_truncated"
 request()
 reply(uncertain)
-contains(lastBar, "Empty 0% left")
-contains(lastBar, "Full 100% left")
-contains(lastBar, "Missing Unknown")
-contains(lastBar, "Old Stale")
-contains(lastBar, "No freshness Stale")
-contains(lastBar, "Broken Unavailable")
-contains(lastBar, "Rejected Unavailable")
-assert(#collectNodes(lastBar, "progress") == 2)
+contains(lastBar, "0%")
+assert(not string.find(texts(lastBar), "100%", 1, true))
+tooltipContains("Full: 100%")
+tooltipContains("Missing: Unknown")
+tooltipContains("Old: 42% · stale")
+tooltipContains("No freshness: 55% · stale")
+tooltipContains("Broken: Unavailable")
+tooltipContains("Rejected: Unavailable")
+assert(#collectNodes(lastBar, "progress") == 1)
 assert(not string.find(texts(lastBar), "42%", 1, true))
 assert(not string.find(texts(lastBar), "55%", 1, true))
 assert(not string.find(texts(lastBar), "56%", 1, true))
 assert(not string.find(texts(lastBar), "57%", 1, true))
-tooltipContains("Old: 42% left · stale")
+tooltipContains("Old: 42% · stale")
 tooltipContains("provider_error")
 tooltipContains("quota_unavailable")
 tooltipContains("accounts_truncated")
@@ -427,9 +462,9 @@ tooltipContains("accounts_truncated")
 request()
 reply("invalid JSON")
 contains(lastBar, "offline")
-contains(lastBar, "codex · one")
-contains(lastBar, "claude · two")
-contains(lastBar, "Empty Stale")
+tooltipContains("codex · one")
+tooltipContains("claude · two")
+tooltipContains("Empty: 0% · stale")
 assert(#collectNodes(lastBar, "progress") == 0)
 
 local duplicates = sample()
@@ -439,8 +474,8 @@ duplicates.accounts = {
 }
 request()
 reply(duplicates)
-contains(lastBar, "codex · Default · first-ac")
-contains(lastBar, "codex · Default · other-ac")
+tooltipContains("codex · Default · first-accoun")
+tooltipContains("codex · Default · other-accoun")
 tooltipContains("first-accoun")
 assert(#collectNodes(lastBar, "progress") == 0)
 
@@ -474,6 +509,93 @@ for _, case in ipairs({
     reply(sample())
 end
 
+-- Usage states are not transport errors: depletion is a known zero balance.
+for _, case in ipairs({
+    { status = "warning", remaining = 9 },
+    { status = "exhausted", remaining = 0 },
+}) do
+    local depleted = sample()
+    depleted.accounts[1].windows[1].status = case.status
+    depleted.accounts[1].windows[1].remaining_percent = case.remaining
+    request()
+    reply(depleted)
+    contains(lastBar, tostring(case.remaining) .. "%")
+    local meters = collectNodes(lastBar, "progress")
+    assert(#meters == 1 and meters[1].props.progress == case.remaining / 100)
+    assert(meters[1].props.fill == "error")
+    contains(lastPanel, tostring(case.remaining) .. "%")
+    tooltipContains("Bar · Session: " .. tostring(case.remaining) .. "%")
+end
+
+local waitingOnly = sample()
+waitingOnly.sessions = {
+    { id = "hidden-idle", title = "Hidden idle", status = "idle" },
+    { id = "hidden-unknown", title = "Hidden unknown", status = "unknown" },
+    { id = "needs-input", title = "Approval needed", status = "waiting" },
+}
+request()
+reply(waitingOnly)
+assert(lastBar.children[2].props.text == "0")
+assert(lastBar.children[2].props.color == "on_surface_variant")
+contains(lastPanel, "Approval needed")
+assert(not string.find(texts(lastPanel), "Hidden idle", 1, true))
+assert(not string.find(texts(lastPanel), "Hidden unknown", 1, true))
+waitingOnly.sessions[3] = nil
+request()
+reply(waitingOnly)
+contains(lastPanel, "No active sessions")
+assert(not string.find(texts(lastPanel), "Hidden", 1, true))
+
+local limiting = sample()
+limiting.accounts[1].windows = {
+    { label = "Session", remaining_percent = 80, stale = false },
+    { label = "Weekly", remaining_percent = 13, stale = false },
+    { label = "Expired", remaining_percent = 1, stale = false, resets_at_epoch = now - 1 },
+}
+request()
+reply(limiting)
+assert(#collectNodes(lastBar, "progress") == 1)
+assert(collectNodes(lastBar, "progress")[1].props.progress == 0.13)
+contains(lastBar, "13%")
+assert(not string.find(texts(lastBar), "80%", 1, true))
+tooltipContains("Bar · Weekly: 13%")
+assert(not string.find(texts(lastBar), " left", 1, true))
+assert(not string.find(texts(lastPanel), " left", 1, true))
+
+for _, case in ipairs({
+    { seconds = 2 * 86400 + 3 * 3600, text = "Resets in 2d 3h" },
+    { seconds = 3 * 3600 + 45 * 60, text = "Resets in 3h 45m" },
+    { seconds = 12 * 60, text = "Resets in 12m" },
+    { seconds = 59, text = "Resets in 1m" },
+    { seconds = 0, text = "Resetting now" },
+    { seconds = -60, text = "Resetting now" },
+}) do
+    local deadline = sample()
+    deadline.accounts[1].windows[1].resets_at_epoch = now + case.seconds
+    request()
+    reply(deadline)
+    contains(lastPanel, case.text)
+    assert(not string.find(texts(lastPanel), "Observed", 1, true))
+end
+
+local clocked = sample()
+clocked.accounts[1].windows[1].resets_at_epoch = now + 7200
+request()
+reply(clocked)
+contains(lastPanel, "Resets in 2h 0m")
+now = now + 60
+noctalia.state.set("snapshot", state.snapshot)
+contains(lastPanel, "Resets in 1h 59m")
+
+for _, epoch in ipairs({ "invalid", "1760000000", true, math.huge, -math.huge, 0 / 0 }) do
+    local invalidDeadline = sample()
+    invalidDeadline.accounts[1].windows[1].resets_at_epoch = epoch
+    request()
+    reply(invalidDeadline)
+    assert(state.snapshot.accounts[1].windows[1].resets_at_epoch == nil)
+    contains(lastPanel, "Reset unavailable")
+end
+
 print(
-    "Albedo monitor: minute polling, all-account/window bar meters, tooltips, lifecycle, stale/error recovery, bounds, normalization and theme radius passed"
+    "Albedo monitor: minute polling, relevant account meters, active sessions, countdowns, startup argv, recovery and themed cards passed"
 )
