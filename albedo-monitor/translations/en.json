@@ -6,7 +6,7 @@
 		},
 		"refresh_interval": {
 			"label": "Refresh interval (seconds)",
-			"description": "Read daemon snapshots; provider quotas follow the daemon\u2019s polling cadence."
+			"description": "Read snapshots every minute by default; provider quotas follow the daemon’s polling cadence."
 		}
 	}
 }

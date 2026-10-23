@@ -14,7 +14,7 @@ Infra supplies the helper’s absolute path through the `monitorPath` setting.
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `monitorPath` | `albedo-monitor` | Helper executable, not a shell command |
-| `refreshIntervalSec` | `5` | Snapshot interval, clamped to 2–300 seconds |
+| `refreshIntervalSec` | `60` | Snapshot interval, clamped to 2–300 seconds |
 
 The helper uses `ALBEDO_HOME`, falling back to `~/.albedo`, and only connects to
 an already running local daemon. It never starts a daemon or attaches a client.
@@ -25,19 +25,26 @@ may assign missing stable account IDs and metadata in its credentials file.
 
 - The bar counts working sessions, including child agents. Waiting sessions have
   a separate count; idle sessions remain in the panel.
-- The percentage is the lowest **remaining** quota across fresh, healthy account
-  windows. The tooltip identifies the limiting account and window.
+- Every connected account has its own bar segment, labeled with provider and
+  account. Each reported window has a compact meter and **remaining** percentage.
+  Duplicate account labels include a short public account ID.
+- Hover for account-specific reset and observation times, quota errors and
+  snapshot time.
 - Click to open the panel. Right-click or use its refresh button to read a new
   snapshot. Refreshing does not force a provider quota poll.
 - Offline and failed snapshots never count last-known sessions as active.
   Retained data is explicitly stale. Quotas older than 30 minutes or past their
-  reset are also stale and excluded from the bar percentage.
+  reset show as stale in the bar, without a live percentage or meter. The tooltip
+  and panel retain explicitly labeled last-known percentages.
 - Unreported or unjoinable limits show as unavailable, never as unlimited.
   Account identity matching belongs to the helper, not the UI.
 
-The service polls once per plugin, even with several widgets. Panel lists show
-at most 60 sessions (working first), 40 accounts and 20 windows per account, with
-an overflow count. The helper also reports daemon pagination or quota limits.
+The service reads a snapshot every minute by default, once per plugin even with
+several widgets. All returned accounts and windows appear in the bar; its width
+grows with the connected inventory. Infra uses this widget instead of CodexBar.
+Panel lists show at most 60 sessions (working first), 40 accounts and 20 windows
+per account, with an overflow count. The helper also reports daemon pagination
+or quota limits.
 Client counts aren’t exposed by the daemon API and aren’t displayed.
 
 ## Checks

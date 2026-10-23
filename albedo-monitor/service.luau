@@ -173,7 +173,7 @@ noctalia.state.watch("command", function(value)
 end)
 
 function update()
-    local interval = tonumber(noctalia.getConfig("refreshIntervalSec")) or 5
+    local interval = tonumber(noctalia.getConfig("refreshIntervalSec")) or 60
     noctalia.setUpdateInterval(math.clamp(interval, 2, 300) * 1000)
     refresh()
 end
