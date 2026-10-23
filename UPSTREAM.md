@@ -1,0 +1,49 @@
+# Compatibility and upstream review
+
+These forks target Noctalia **v5.3.0**, plugin API **34**. All five manifests
+now require API 34; older shells must use an earlier repository revision.
+API levels are cumulative minimum requirements, not migration versions.
+APIs 29–34 add optional capabilities and require no breaking source migration.
+API 35 and later are not available in the installed v5.3.0 shell.
+
+References:
+
+- [API compatibility table](https://docs.noctalia.dev/noctalia/plugins/development/plugin-api/)
+- [Noctalia v5.3.0](https://github.com/noctalia-dev/noctalia/releases/tag/v5.3.0)
+- [Reviewed community snapshot](https://github.com/noctalia-dev/community-plugins/tree/a5b079de458e68874a3222eeab3345d8d3d28db8)
+
+## Fork changes
+
+- **CodexBar Meter:** ported upstream's compact/standard/tall panel selection.
+  The existing public `panel` ID remains available. The compact tier retains
+  the local 404-pixel height; standard and tall tiers use 560 and 720 pixels.
+  Kept local corner-radius scaling, glyph sizing, and pace-label layout.
+  Content-driven height is not used because it requires API 42.
+- **Keybind Cheatsheet:** synchronized the upstream 0.3.2 parser and panel,
+  including staged parsing and progressive rendering to stay within callback
+  CPU budgets, Fcitx5 hotkeys, sequential-binding grouping, modifier labels,
+  keyboard names, and fixture files. Retained the local five-column cap.
+  Also invalidate cached rows when settings change, so modifier labels update.
+- **Nix Monitor:** retained the local 2.0 generation/store-only fork. Upstream
+  1.3.1's nixpkgs branch polling and update controls are intentionally excluded;
+  restoring them would undo the local scope reduction. Upstream entry names
+  `nix_monitor.luau` and `nix_monitor_service.luau` map to local `widget.luau`
+  and `service.luau`.
+- **Udiskie Manager:** upstream service and status widget match the local code;
+  the panel differs only in local corner-radius scaling. No upstream functional
+  changes to port.
+- **Performance Mode:** original local plugin; no upstream fork to synchronize.
+
+## Checks
+
+```sh
+noctalia plugins lint .
+python3 tests/run.py /path/to/luau
+nix fmt
+nix flake check --no-update-lock-file
+```
+
+The isolated Luau tests cover the five upstream parser fixture cases, a
+180-binding staged Niri refresh, last-good recovery after a failed refresh,
+progressive panel opening/closing, keyboard names, and CodexBar panel tiers.
+They do not exercise compositor surfaces or real device/rebuild actions.

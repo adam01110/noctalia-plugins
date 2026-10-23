@@ -21,7 +21,11 @@ local providers = {}
 local errorMsg = ""
 local requestInFlight = false
 
-local PANEL_ID = "salemsayed/codexbar-meter:panel"
+local PANEL_IDS = {
+    compact = "salemsayed/codexbar-meter:panel-compact",
+    standard = "salemsayed/codexbar-meter:panel",
+    tall = "salemsayed/codexbar-meter:panel-tall",
+}
 
 local PROVIDER_META = {
     codex = { label = "Codex", glyph = "brand-openai", color = "primary" },
@@ -310,6 +314,55 @@ local function hasProviderErrors()
     return false
 end
 
+local function hasProviderStatus(provider)
+    local status = type(provider) == "table" and provider.status or nil
+    return type(status) == "table"
+        and status.description ~= nil
+        and tostring(status.indicator or "none") ~= "none"
+end
+
+local function hasPaceSummary(provider)
+    local pace = type(provider) == "table" and provider.pace or nil
+    if type(pace) ~= "table" then return false end
+    for _, key in ipairs({ "primary", "secondary", "tertiary" }) do
+        if type(pace[key]) == "table" and pace[key].summary ~= nil then return true end
+    end
+    for _, value in pairs(pace) do
+        if type(value) == "table" and value.summary ~= nil then return true end
+    end
+    return false
+end
+
+local function estimatedProviderHeight(provider)
+    -- Approximate the panel card from semantic content, not provider names.
+    -- This deliberately errs upward; the scroll view remains the safety net
+    -- for providers with unusually verbose or future-specific payloads.
+    local height = 104
+    height = height + (#windowsFor(provider) * 82)
+    if providerError(provider) ~= "" then height = height + 44 end
+    if hasPaceSummary(provider) then height = height + 34 end
+    if provider.stale == true then height = height + 34 end
+
+    local credits = creditsFor(provider)
+    if credits ~= nil and credits.remaining ~= nil then height = height + 30 end
+    if hasProviderStatus(provider) then height = height + 34 end
+    return height
+end
+
+local function panelEntryIdForCurrentData()
+    if #providers == 0 then return PANEL_IDS.compact end
+
+    local estimate = 130
+    for index, provider in ipairs(providers) do
+        estimate = estimate + estimatedProviderHeight(provider)
+        if index > 1 then estimate = estimate + 10 end
+    end
+
+    if estimate <= 420 then return PANEL_IDS.compact end
+    if estimate <= 600 then return PANEL_IDS.standard end
+    return PANEL_IDS.tall
+end
+
 local function render()
     local selected = selectedEntries()
     local rows = {}
@@ -422,7 +475,7 @@ function update()
 end
 
 function onClick()
-    noctalia.togglePanel(PANEL_ID)
+    noctalia.togglePanel(panelEntryIdForCurrentData())
 end
 
 function onRightClick()

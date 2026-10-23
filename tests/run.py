@@ -1,0 +1,62 @@
+"""Run isolated Luau plugin checks using the real parser fixtures."""
+
+import json
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def lua_value(value):
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if value is None:
+        return "nil"
+    if isinstance(value, list):
+        return "{" + ",".join(lua_value(item) for item in value) + "}"
+    if isinstance(value, dict):
+        return "{" + ",".join(
+            "[" + lua_value(key) + "]=" + lua_value(item)
+            for key, item in value.items()
+        ) + "}"
+    return str(value)
+
+
+with tempfile.TemporaryDirectory(prefix="noctalia-plugin-tests-") as directory:
+    target = Path(directory) / "keybind-cheatsheet"
+    shutil.copytree(ROOT / "keybind-cheatsheet", target)
+    fixtures = {}
+    for path in (target / "tests" / "fixtures").rglob("*"):
+        if path.is_file():
+            text = path.read_text()
+            fixtures["/plugin/tests/" + str(path.relative_to(target / "tests"))] = (
+                json.loads(text) if path.suffix == ".json" else text
+            )
+    fixtures["/plugin/tests/expected.json"] = json.loads(
+        (target / "tests/expected.json").read_text()
+    )
+    fixtures["translations"] = json.loads((target / "translations/en.json").read_text())
+    (target / "tests/fixture_data.luau").write_text("return " + lua_value(fixtures))
+    result = subprocess.run(
+        [sys.argv[1] if len(sys.argv) > 1 else "luau", str(target / "tests/run.luau")],
+        check=False,
+    )
+    if result.returncode:
+        sys.exit(result.returncode)
+    codex_test = Path(directory) / "codexbar.luau"
+    codex_test.write_text(
+        (ROOT / "tests/codexbar.luau").read_text().replace(
+            "-- PLUGIN_SOURCE", (ROOT / "codexbar-meter/bar_widget.luau").read_text()
+        )
+    )
+    result = subprocess.run(
+        [sys.argv[1] if len(sys.argv) > 1 else "luau", str(codex_test)], check=False
+    )
+    sys.exit(result.returncode)
