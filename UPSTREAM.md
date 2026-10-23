@@ -1,6 +1,6 @@
 # Compatibility and upstream review
 
-These forks target Noctalia **v5.3.0**, plugin API **34**. All five manifests
+These forks target Noctalia **v5.3.0**, plugin API **34**. All four manifests
 now require API 34; older shells must use an earlier repository revision.
 API levels are cumulative minimum requirements, not migration versions.
 APIs 29–34 add optional capabilities and require no breaking source migration.
@@ -32,7 +32,6 @@ References:
 - **Udiskie Manager:** upstream service and status widget match the local code;
   the panel differs only in local corner-radius scaling. No upstream functional
   changes to port.
-- **Performance Mode:** original local plugin; no upstream fork to synchronize.
 
 ## Checks
 

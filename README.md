@@ -16,8 +16,8 @@ by my system configuration.
 
 <!-- rumdl-enable MD033 MD041 -->
 
-This is my small collection of Noctalia plugins. Everything except Performance
-Mode is a community plugin fork with local changes for my setup.
+This is my small collection of community Noctalia plugin forks with local
+changes for my setup.
 
 ## Plugins
 
@@ -26,10 +26,9 @@ Mode is a community plugin fork with local changes for my setup.
 | [CodexBar Meter](./codexbar-meter) | `salemsayed/codexbar-meter` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/codexbar-meter) |
 | [Keybind Cheatsheet](./keybind-cheatsheet) | `kenn/keybind-cheatsheet` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/keybind-cheatsheet) |
 | [Nix Monitor](./nix-monitor) | `avivbintangaringga/nix-monitor` | [community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/nix-monitor) |
-| [Performance Mode](./performance) | `adam0/performance` | Original |
 | [Udiskie Manager](./udiskie) | `aristides/udiskie` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/udiskie) |
 
-Every plugin except Performance Mode is a fork. Upstream plugin IDs and author
+Every plugin is a fork. Upstream plugin IDs and author
 identities are retained so those forks remain clearly attributable.
 
 ## Usage
@@ -67,7 +66,6 @@ external tools are:
 | CodexBar Meter | `codexbar`, `timeout` |
 | Keybind Cheatsheet | `hyprctl` |
 | Nix Monitor | `nix`, `nix-store`, `nixos-rebuild`, plus standard shell utilities |
-| Performance Mode | `performance-mode` |
 | Udiskie Manager | `udiskie`, `udisks2`, `xdg-open` |
 
 ## Development
