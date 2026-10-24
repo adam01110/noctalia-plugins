@@ -101,13 +101,34 @@ local function checkSurfaces(node, scale, width, color)
     end
 end
 
+local function checkButtons(node)
+    if node.kind == "button" then
+        assert(node.props.variant ~= "outline", "Idle buttons must use the native surface variant")
+    end
+    for _, child in ipairs(node.children) do
+        checkButtons(child)
+    end
+end
+
 local function checkTheme(scale, width, color)
     watcher(snapshot)
-    assert(lastPanel.props.radius == 16 * scale)
+    assert(lastPanel.props.radius == nil, "Native panel shell owns popup radius")
+    assert(
+        lastPanel.props.borderWidth == nil and lastPanel.props.border == nil,
+        "Native panel shell owns popup outline"
+    )
+    assert(
+        button(lastPanel, "refresh").variant == nil and button(lastPanel, "x").variant == nil,
+        "Header buttons need native surfaces"
+    )
     assert(lastPanel.children[2].props.radius == 12 * scale)
     for _, tab in ipairs({ "connections", "protection", "account" }) do
         button(lastPanel, "tabs." .. tab).onClick()
+        if tab == "connections" then
+            assert(button(lastPanel, "actions.fastest").variant == nil)
+        end
         checkSurfaces(lastPanel, scale, width, color)
+        checkButtons(lastPanel)
     end
     snapshot.signedIn = false
     watcher(snapshot)

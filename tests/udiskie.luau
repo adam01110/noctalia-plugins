@@ -39,7 +39,7 @@ local function findButton(node, glyph)
 end
 
 local settings = assert(findButton(lastPanel, "settings"))
-assert(settings.variant == "outline", "Settings needs a visible idle border")
+assert(settings.variant == nil, "Settings uses the native button surface")
 settings.onClick()
 assert(settingsOpened, "Settings must still open the plugin settings")
 findButton(lastPanel, "link").onClick()
@@ -55,4 +55,4 @@ local function loadStatus()
     assert(command == "noctalia msg plugin adam0/udiskie:service all refresh")
 end
 loadStatus()
-print("Udiskie: idle Settings border, Settings action, custom panel and service targets passed")
+print("Udiskie: native Settings surface, Settings action, custom panel and service targets passed")

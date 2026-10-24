@@ -28,6 +28,7 @@ monitor.
 | [Nix Monitor](./nix-monitor) | `avivbintangaringga/nix-monitor` | [community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/nix-monitor) |
 | [NoctaProton VPN](./noctaproton-vpn) | `adam0/noctaproton-vpn` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/noctaproton-vpn) |
 | [Udiskie Manager](./udiskie) | `adam0/udiskie` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/udiskie) |
+| [World Clock](./world-clock) | `noctalia/world_clock` | [Official plugin](https://github.com/noctalia-dev/official-plugins/tree/main/world_clock) |
 
 Forks retain upstream author identities. Udiskie Manager uses `adam0/udiskie`
 to distinguish it from the community copy. Albedo Monitor uses its own ID and

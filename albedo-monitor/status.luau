@@ -81,7 +81,7 @@ local function windowMeter(account, window, index, online, radius)
 
     children[#children + 1] = ui.label({
         text = value,
-        fontSize = 11,
+        fontSize = 12,
         color = color,
         maxLines = 1,
     })
@@ -116,7 +116,7 @@ local function accountSegment(account, index, selected, online, radius)
     local children = {
         ui.glyph({
             name = PROVIDER_GLYPHS[account.provider] or "chart-donut-3",
-            size = 13,
+            size = 14,
             color = online and "on_surface" or "on_surface_variant",
         }),
     }
@@ -125,7 +125,7 @@ local function accountSegment(account, index, selected, online, radius)
         children[#children + 1] = windowMeter(account, selected, 1, online, radius)
     else
         children[#children + 1] =
-            ui.label({ text = "—", fontSize = 11, color = "on_surface_variant" })
+            ui.label({ text = "—", fontSize = 12, color = "on_surface_variant" })
     end
 
     return ui.row({ key = "account-" .. tostring(index), align = "center", gap = 5 }, children)
@@ -210,7 +210,7 @@ local function render()
         ui.glyph({ name = online and "robot" or "plug-off", size = 15, color = color }),
         ui.label({
             text = activityText(online, reliable, working),
-            fontSize = 11,
+            fontSize = 12,
             color = color,
             fontWeight = "semibold",
         }),
@@ -233,7 +233,7 @@ local function render()
         rows[#rows + 1] = ui.label({
             text = data.accounts_error ~= "" and "Account data unavailable"
                 or "No connected accounts",
-            fontSize = 11,
+            fontSize = 12,
             color = "on_surface_variant",
         })
     end

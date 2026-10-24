@@ -229,6 +229,14 @@ contains(lastBar, "63%")
 assert(#collectNodes(lastBar, "progress") == 1)
 assert(not string.find(texts(lastBar), " left", 1, true))
 assert(not string.find(texts(lastBar), " active", 1, true))
+local function assertReadableText(tree)
+    local labels = collectNodes(tree, "label")
+    assert(#labels > 0, "Typography checks need a rendered tree")
+    for _, node in ipairs(labels) do
+        assert(node.props.fontSize >= 12, "Rendered text must stay at least 12px")
+    end
+end
+assertReadableText(lastBar)
 assert(not string.find(texts(lastBar), "codex", 1, true), "Identity belongs in hover details")
 tooltipContains("codex · one")
 tooltipContains("claude · two")
@@ -238,6 +246,7 @@ assert(panelRenders == 0, "Closed panels must not render")
 statusClick()
 assert(selectedPanel == "adam0/albedo-monitor:panel")
 onOpen({})
+assertReadableText(lastPanel)
 contains(lastPanel, "DAEMON ONLINE")
 contains(lastPanel, "↳ Child")
 contains(lastPanel, "quota_unavailable")
@@ -380,8 +389,8 @@ for _, case in ipairs({
     checkProgressRadius(lastBar, case.radius, 1)
     local scale = case.radius / 2
     assert(
-        lastPanel.props.border == "outline" and lastPanel.props.borderWidth == 1,
-        "Popup needs its own border"
+        lastPanel.props.border == nil and lastPanel.props.borderWidth == nil,
+        "Popup shell supplies the outer border"
     )
     assert(lastPanel.props.radius == 16 * scale, "Popup radius must follow the user setting")
     local cards = 0
@@ -401,12 +410,15 @@ for _, case in ipairs({
     local buttons = collectNodes(lastPanel, "button")
     assert(#buttons == 2)
     for _, button in ipairs(buttons) do
-        assert(button.props.variant == "outline" and button.props.controlSize == "sm")
+        assert(
+            button.props.variant == nil and button.props.controlSize == "sm",
+            "Use native button surface"
+        )
     end
     assert(buttons[1].props.onClick == "onRefresh" and buttons[2].props.onClick == "onCloseClicked")
 end
 
--- Popup and cards inherit the shell's border switch, width, and color once per render.
+-- Cards inherit panel border settings; the popup shell is bordered by Noctalia.
 for _, case in ipairs({
     {
         settings = { borders = true, border_width = 2.5, border_color = "primary" },
@@ -433,7 +445,7 @@ for _, case in ipairs({
     borderSettings = case.settings
     borderReads = {}
     noctalia.state.set("snapshot", state.snapshot)
-    assert(lastPanel.props.borderWidth == case.width and lastPanel.props.border == case.color)
+    assert(lastPanel.props.borderWidth == nil and lastPanel.props.border == nil)
     local cards = 0
     for _, node in ipairs(collectNodes(lastPanel, "column")) do
         local key = node.props.key or ""

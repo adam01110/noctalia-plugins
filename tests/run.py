@@ -85,4 +85,13 @@ with tempfile.TemporaryDirectory(prefix="noctalia-plugin-tests-") as directory:
     result = subprocess.run(
         [sys.argv[1] if len(sys.argv) > 1 else "luau", str(vpn_test)], check=False
     )
+    if result.returncode:
+        sys.exit(result.returncode)
+    world_clock_test = Path(directory) / "world-clock.luau"
+    source = (ROOT / "tests/world-clock.luau").read_text()
+    source = source.replace("-- PANEL_SOURCE", (ROOT / "world-clock/panel.luau").read_text())
+    world_clock_test.write_text(source)
+    result = subprocess.run(
+        [sys.argv[1] if len(sys.argv) > 1 else "luau", str(world_clock_test)], check=False
+    )
     sys.exit(result.returncode)

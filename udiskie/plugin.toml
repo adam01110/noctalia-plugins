@@ -4,7 +4,7 @@
 
 id = "adam0/udiskie"
 name = "Udiskie Manager"
-version = "0.1.2"
+version = "0.1.3"
 plugin_api = 34
 author = "aristides"
 license = "MIT"

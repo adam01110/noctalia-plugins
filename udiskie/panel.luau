@@ -221,7 +221,6 @@ local function renderHeaderRow()
         ui.row({ gap = 6 }, {
             ui.button({
                 glyph = "settings",
-                variant = "outline",
                 controlSize = "sm",
                 onClick = function()
                     noctalia.openSettings()

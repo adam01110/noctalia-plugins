@@ -104,7 +104,6 @@ local function renderConnectionsTab()
             ui.button({
                 text = noctalia.tr("actions.fastest"),
                 glyph = "bolt",
-                variant = "outline",
                 controlSize = "sm",
                 flexGrow = 1,
                 onClick = function()
@@ -114,7 +113,6 @@ local function renderConnectionsTab()
             ui.button({
                 text = "Random",
                 glyph = "arrows-shuffle",
-                variant = "outline",
                 controlSize = "sm",
                 flexGrow = 1,
                 onClick = function()
@@ -124,7 +122,6 @@ local function renderConnectionsTab()
             ui.button({
                 text = "P2P",
                 glyph = "download",
-                variant = "outline",
                 controlSize = "sm",
                 flexGrow = 1,
                 onClick = function()
@@ -134,7 +131,6 @@ local function renderConnectionsTab()
             ui.button({
                 text = "Tor",
                 glyph = "eye-off",
-                variant = "outline",
                 controlSize = "sm",
                 flexGrow = 1,
                 onClick = function()
@@ -230,7 +226,7 @@ local function renderConnectionsTab()
                     ui.button({
                         text = isCurrentCountry and noctalia.tr("status.connected")
                             or noctalia.tr("actions.connect"),
-                        variant = isCurrentCountry and "primary" or "outline",
+                        variant = isCurrentCountry and "primary" or "default",
                         glyph = isCurrentCountry and "check" or "player-play",
                         controlSize = "sm",
                         enabled = not isCurrentCountry and not snapshot.busy,
@@ -353,7 +349,7 @@ local function renderProtectionTab()
             ui.row({ gap = 6, align = "center" }, {
                 ui.button({
                     text = noctalia.tr("protection.netshield_off"),
-                    variant = (nsVal == "off") and "primary" or "outline",
+                    variant = (nsVal == "off") and "primary" or "default",
                     controlSize = "sm",
                     flexGrow = 1,
                     onClick = function()
@@ -362,7 +358,7 @@ local function renderProtectionTab()
                 }),
                 ui.button({
                     text = noctalia.tr("protection.netshield_malware"),
-                    variant = (nsVal == "malware-only") and "primary" or "outline",
+                    variant = (nsVal == "malware-only") and "primary" or "default",
                     controlSize = "sm",
                     flexGrow = 1,
                     onClick = function()
@@ -371,7 +367,7 @@ local function renderProtectionTab()
                 }),
                 ui.button({
                     text = noctalia.tr("protection.netshield_all"),
-                    variant = (nsVal == "malware-ads-trackers") and "primary" or "outline",
+                    variant = (nsVal == "malware-ads-trackers") and "primary" or "default",
                     controlSize = "sm",
                     flexGrow = 1,
                     onClick = function()
@@ -436,7 +432,6 @@ local function renderProtectionTab()
                 ui.button({
                     text = noctalia.tr("actions.copy_port"),
                     glyph = "copy",
-                    variant = "outline",
                     controlSize = "xs",
                     onClick = function()
                         noctalia.copyToClipboard(tostring(snapshot.forwardedPort), "text/plain")
@@ -588,7 +583,6 @@ local function renderProtectionTab()
                     ui.button({
                         text = "Add",
                         glyph = "plus",
-                        variant = "outline",
                         controlSize = "sm",
                         enabled = selectedAppToAdd ~= "",
                         onClick = function()
@@ -718,7 +712,6 @@ local function renderAccountTab()
                 ui.button({
                     text = noctalia.tr("actions.signout"),
                     glyph = "logout",
-                    variant = "outline",
                     flexGrow = 1,
                     onClick = function()
                         sendCmd("signout")
@@ -727,7 +720,6 @@ local function renderAccountTab()
                 ui.button({
                     text = "Refresh Status",
                     glyph = "refresh",
-                    variant = "ghost",
                     onClick = function()
                         sendCmd("refresh")
                     end,
@@ -827,7 +819,7 @@ render = function()
                         snapshot.signedIn and noctalia.tr("actions.quick_connect")
                         or noctalia.tr("actions.signin")
                     ),
-                variant = connected and "outline" or "primary",
+                variant = connected and "default" or "primary",
                 glyph = connected and "player-stop"
                     or (snapshot.signedIn and "player-play" or "login"),
                 controlSize = "sm",
@@ -933,9 +925,6 @@ render = function()
         flexGrow = 1,
         gap = 10,
         align = "stretch",
-        radius = 16 * scale,
-        border = borderColor,
-        borderWidth = borderWidth,
     }, {
         -- Header
         ui.row({ align = "center", gap = 8 }, {
@@ -948,7 +937,6 @@ render = function()
             }),
             ui.button({
                 glyph = "refresh",
-                variant = "ghost",
                 controlSize = "sm",
                 onClick = function()
                     sendCmd("refresh")
@@ -956,7 +944,6 @@ render = function()
             }),
             ui.button({
                 glyph = "x",
-                variant = "ghost",
                 controlSize = "sm",
                 onClick = function()
                     noctalia.togglePanel("adam0/noctaproton-vpn:panel")

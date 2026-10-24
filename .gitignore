@@ -4,3 +4,5 @@ noctalia.d.luau
 .rumdl_cache
 result*
 # keep-sorted end
+
+.workspaces/

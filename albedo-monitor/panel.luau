@@ -18,8 +18,8 @@ end
 
 local function section(title, count)
     return ui.row({ justify = "space_between", align = "center", paddingV = 4 }, {
-        ui.label({ text = title, fontSize = 13, color = "on_surface", fontWeight = "semibold" }),
-        label(tostring(count), 11, "on_surface_variant"),
+        ui.label({ text = title, fontSize = 14, color = "on_surface", fontWeight = "semibold" }),
+        label(tostring(count), 12, "on_surface_variant"),
     })
 end
 
@@ -58,19 +58,19 @@ local function sessionRow(session, scale, border)
         ui.row({ justify = "space_between", align = "center", gap = 8 }, {
             ui.label({
                 text = title,
-                fontSize = 12,
+                fontSize = 14,
                 fontWeight = "semibold",
                 color = "on_surface",
                 maxLines = 1,
                 flexGrow = 1,
             }),
-            label(status, 10, color),
+            label(status, 12, color),
         }),
-        label(session.model .. " · " .. location, 10, "on_surface_variant"),
+        label(session.model .. " · " .. location, 12, "on_surface_variant"),
         label(
             string.sub(session.id, 1, 12)
                 .. (session.phase ~= "" and (" · " .. session.phase) or ""),
-            10,
+            12,
             "on_surface_variant"
         ),
     })
@@ -115,8 +115,8 @@ local function windowRow(window, stale, radius)
 
     local rows = {
         ui.row({ justify = "space_between", gap = 8 }, {
-            label(window.label, 11, "on_surface_variant"),
-            label(value, 11, color),
+            label(window.label, 12, "on_surface_variant"),
+            label(value, 12, color),
         }),
     }
 
@@ -131,10 +131,10 @@ local function windowRow(window, stale, radius)
     end
 
     if window.resets_at_epoch ~= nil or window.resets_at ~= "" then
-        rows[#rows + 1] = label(resetCountdown(window.resets_at_epoch), 10, "on_surface_variant")
+        rows[#rows + 1] = label(resetCountdown(window.resets_at_epoch), 12, "on_surface_variant")
     end
     if window.status ~= "" and window.status ~= "ok" then
-        rows[#rows + 1] = label(window.status, 10, "on_surface_variant")
+        rows[#rows + 1] = label(window.status, 12, "on_surface_variant")
     end
 
     return ui.column({ gap = 4, paddingV = 4 }, rows)
@@ -144,7 +144,7 @@ local function accountRow(account, index, stale, scale, border)
     local children = {
         ui.label({
             text = account.provider,
-            fontSize = 12,
+            fontSize = 14,
             fontWeight = "semibold",
             color = "on_surface",
             maxLines = 1,
@@ -152,22 +152,22 @@ local function accountRow(account, index, stale, scale, border)
         label(
             account.account
                 .. (account.id ~= "" and (" · " .. string.sub(account.id, 1, 12)) or ""),
-            10,
+            12,
             "on_surface_variant"
         ),
     }
 
     if account.error ~= "" then
-        children[#children + 1] = label(account.error, 11, "tertiary")
+        children[#children + 1] = label(account.error, 12, "tertiary")
     end
     if #account.windows == 0 then
-        children[#children + 1] = label("Quota unavailable", 11, "on_surface_variant")
+        children[#children + 1] = label("Quota unavailable", 12, "on_surface_variant")
     end
 
     for index, window in ipairs(account.windows) do
         if index > 20 then
             children[#children + 1] =
-                label(tostring(#account.windows - 20) .. " more limits", 10, "on_surface_variant")
+                label(tostring(#account.windows - 20) .. " more limits", 12, "on_surface_variant")
             break
         end
         children[#children + 1] = windowRow(window, stale or account.error ~= "", 2 * scale)
@@ -238,7 +238,7 @@ local function render()
     for index, session in ipairs(sessions) do
         if index > 60 then
             content[#content + 1] =
-                label(tostring(#sessions - 60) .. " more active sessions", 11, "on_surface_variant")
+                label(tostring(#sessions - 60) .. " more active sessions", 12, "on_surface_variant")
             break
         end
         content[#content + 1] = sessionRow(session, scale, border)
@@ -247,7 +247,7 @@ local function render()
     content[#content + 1] = ui.separator({ color = "outline", opacity = 0.2, spacing = 4 })
     content[#content + 1] = section("Accounts", #accounts)
     if ready and data.accounts_error ~= "" then
-        content[#content + 1] = label(data.accounts_error, 11, "tertiary")
+        content[#content + 1] = label(data.accounts_error, 12, "tertiary")
     end
     if #accounts == 0 then
         content[#content + 1] = label(
@@ -260,7 +260,7 @@ local function render()
     for index, account in ipairs(accounts) do
         if index > 40 then
             content[#content + 1] =
-                label(tostring(#accounts - 40) .. " more accounts", 11, "on_surface_variant")
+                label(tostring(#accounts - 40) .. " more accounts", 12, "on_surface_variant")
             break
         end
         content[#content + 1] = accountRow(account, index, stale, scale, border)
@@ -275,8 +275,6 @@ local function render()
         flexGrow = 1,
         padding = 16,
         gap = 8,
-        border = border.color,
-        borderWidth = border.width,
         radius = 16 * scale,
     }, {
         ui.row({ justify = "space_between", align = "center" }, {
@@ -292,14 +290,12 @@ local function render()
             ui.row({ gap = 6 }, {
                 ui.button({
                     glyph = "refresh",
-                    variant = "outline",
                     controlSize = "sm",
                     tooltip = "Read daemon snapshot",
                     onClick = "onRefresh",
                 }),
                 ui.button({
                     glyph = "x",
-                    variant = "outline",
                     controlSize = "sm",
                     tooltip = "Close",
                     onClick = "onCloseClicked",
@@ -307,8 +303,8 @@ local function render()
             }),
         }),
         ui.row({ justify = "space_between", gap = 8 }, {
-            label(status, 10, online and "primary" or "on_surface_variant"),
-            label(refreshed, 10, "on_surface_variant"),
+            label(status, 12, online and "primary" or "on_surface_variant"),
+            label(refreshed, 12, "on_surface_variant"),
         }),
         ui.scroll({ key = "albedo-content", flexGrow = 1, gap = 8 }, content),
     }))
