@@ -47,8 +47,7 @@ still works; automatic startup requires an updated helper.
 
 The service reads a snapshot every minute by default, once per plugin even with
 several widgets. All returned accounts appear in the bar, with one relevant
-window each; its width grows with the connected inventory. Infra uses this widget
-instead of CodexBar.
+window each; its width grows with the connected inventory.
 Panel lists show at most 60 active sessions (working first), 40 accounts and
 20 windows per account, with an overflow count. The helper also reports daemon
 pagination or quota limits.

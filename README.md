@@ -24,7 +24,6 @@ monitor.
 | Plugin | ID | Origin |
 | --- | --- | --- |
 | [Albedo Monitor](./albedo-monitor) | `adam0/albedo-monitor` | Custom plugin, inspired by [Bloom](https://noctalia.dev/plugins/community/bloom) |
-| [CodexBar Meter](./codexbar-meter) | `salemsayed/codexbar-meter` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/codexbar-meter) |
 | [Keybind Cheatsheet](./keybind-cheatsheet) | `kenn/keybind-cheatsheet` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/keybind-cheatsheet) |
 | [Nix Monitor](./nix-monitor) | `avivbintangaringga/nix-monitor` | [community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/nix-monitor) |
 | [NoctaProton VPN](./noctaproton-vpn) | `adam0/noctaproton-vpn` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/noctaproton-vpn) |
@@ -67,7 +66,6 @@ external tools are:
 | Plugin | Commands |
 | --- | --- |
 | Albedo Monitor | `albedo-monitor` from albedo-suite, `timeout` |
-| CodexBar Meter | `codexbar`, `timeout` |
 | Keybind Cheatsheet | `hyprctl` |
 | Nix Monitor | `nix`, `nix-store`, `nixos-rebuild`, plus standard shell utilities |
 | Udiskie Manager | `udiskie`, `udisks2`, `xdg-open` |

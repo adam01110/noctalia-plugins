@@ -50,17 +50,6 @@ with tempfile.TemporaryDirectory(prefix="noctalia-plugin-tests-") as directory:
     )
     if result.returncode:
         sys.exit(result.returncode)
-    codex_test = Path(directory) / "codexbar.luau"
-    codex_test.write_text(
-        (ROOT / "tests/codexbar.luau").read_text().replace(
-            "-- PLUGIN_SOURCE", (ROOT / "codexbar-meter/bar_widget.luau").read_text()
-        )
-    )
-    result = subprocess.run(
-        [sys.argv[1] if len(sys.argv) > 1 else "luau", str(codex_test)], check=False
-    )
-    if result.returncode:
-        sys.exit(result.returncode)
     albedo_test = Path(directory) / "albedo.luau"
     source = (ROOT / "tests/albedo.luau").read_text()
     for marker, filename in (

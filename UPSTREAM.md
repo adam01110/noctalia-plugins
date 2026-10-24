@@ -20,11 +20,6 @@ Albedo daemon, not Bloom’s code or Claude Code hooks.
 
 ## Fork changes
 
-- **CodexBar Meter:** ported upstream's compact/standard/tall panel selection.
-  The existing public `panel` ID remains available. The compact tier retains
-  the local 404-pixel height; standard and tall tiers use 560 and 720 pixels.
-  Kept local corner-radius scaling, glyph sizing, and pace-label layout.
-  Content-driven height is not used because it requires API 42.
 - **Keybind Cheatsheet:** synchronized the upstream 0.3.2 parser and panel,
   including staged parsing and progressive rendering to stay within callback
   CPU budgets, Fcitx5 hotkeys, sequential-binding grouping, modifier labels,
@@ -55,7 +50,7 @@ nix flake check --no-update-lock-file
 
 The isolated Luau tests cover the five upstream parser fixture cases, a
 180-binding staged Niri refresh, last-good recovery after a failed refresh,
-progressive panel opening/closing, keyboard names, and CodexBar panel tiers.
+progressive panel opening/closing, and keyboard names.
 Albedo checks cover the poller, literal command arguments, active/waiting
 subagents, quota windows, stale data, failure recovery, and bounded panel lists.
 They do not exercise compositor surfaces or real device/rebuild actions.
