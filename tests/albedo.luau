@@ -15,6 +15,8 @@ local pending, command, lastBar, lastPanel, lastTooltip, selectedPanel
 local started, panelRenders = 0, 0
 local accepted = true
 local settingReads, cornerScale = 0, 0
+local borderSettings = { borders = true, border_width = 1, border_color = "outline" }
+local borderReads = {}
 local config = { monitorPath = "/tmp/space ' ; $/albedo-monitor" }
 local interval
 local noctalia = {
@@ -22,9 +24,14 @@ local noctalia = {
         return config[key]
     end,
     getSetting = function(key)
-        assert(key == "shell.corner_radius_scale")
-        settingReads = settingReads + 1
-        return cornerScale
+        if key == "shell.corner_radius_scale" then
+            settingReads = settingReads + 1
+            return cornerScale
+        end
+        local field = string.match(key, "^shell%.panel%.(.+)$")
+        assert(field ~= nil)
+        borderReads[field] = (borderReads[field] or 0) + 1
+        return borderSettings[field]
     end,
     expandPath = function(value)
         return value
@@ -398,6 +405,49 @@ for _, case in ipairs({
     end
     assert(buttons[1].props.onClick == "onRefresh" and buttons[2].props.onClick == "onCloseClicked")
 end
+
+-- Popup and cards inherit the shell's border switch, width, and color once per render.
+for _, case in ipairs({
+    {
+        settings = { borders = true, border_width = 2.5, border_color = "primary" },
+        width = 2.5,
+        color = "primary",
+    },
+    {
+        settings = { borders = false, border_width = 3, border_color = "#abcdef" },
+        width = 0,
+        color = "#abcdef",
+    },
+    {
+        settings = { borders = true, border_width = 0, border_color = "secondary" },
+        width = 0,
+        color = "secondary",
+    },
+    { settings = { border_width = -1 }, width = 0, color = "outline" },
+    { settings = { border_width = 25 }, width = 20, color = "outline" },
+    { settings = { border_width = "invalid", border_color = "" }, width = 1, color = "outline" },
+    { settings = { border_width = math.huge }, width = 1, color = "outline" },
+    { settings = { border_width = 0 / 0 }, width = 1, color = "outline" },
+    { settings = {}, width = 1, color = "outline" },
+}) do
+    borderSettings = case.settings
+    borderReads = {}
+    noctalia.state.set("snapshot", state.snapshot)
+    assert(lastPanel.props.borderWidth == case.width and lastPanel.props.border == case.color)
+    local cards = 0
+    for _, node in ipairs(collectNodes(lastPanel, "column")) do
+        local key = node.props.key or ""
+        if string.sub(key, 1, 8) == "session-" or string.sub(key, 1, 8) == "account-" then
+            assert(node.props.borderWidth == case.width and node.props.border == case.color)
+            cards = cards + 1
+        end
+    end
+    assert(cards == 5)
+    assert(
+        borderReads.borders == 1 and borderReads.border_width == 1 and borderReads.border_color == 1
+    )
+end
+borderSettings = { borders = true, border_width = 1, border_color = "outline" }
 
 -- Keep all accounts, but show only the tightest healthy window per account.
 local inventory = sample()

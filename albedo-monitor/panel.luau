@@ -23,7 +23,20 @@ local function section(title, count)
     })
 end
 
-local function sessionRow(session, scale)
+local function panelBorder()
+    local enabled = noctalia.getSetting("shell.panel.borders")
+    local width = noctalia.getSetting("shell.panel.border_width")
+    local color = noctalia.getSetting("shell.panel.border_color")
+    if type(width) ~= "number" or width ~= width or math.abs(width) == math.huge then
+        width = 1 -- Noctalia's default when the setting is unavailable.
+    end
+    if type(color) ~= "string" or color == "" then
+        color = "outline"
+    end
+    return { width = enabled == false and 0 or math.clamp(width, 0, 20), color = color }
+end
+
+local function sessionRow(session, scale, border)
     local color = SESSION_COLORS[session.status]
     local status = session.status
     local location = session.workspace
@@ -39,8 +52,8 @@ local function sessionRow(session, scale)
         padding = 10,
         fill = "surface_variant/0.58",
         radius = 10 * scale,
-        border = "outline",
-        borderWidth = 1,
+        border = border.color,
+        borderWidth = border.width,
     }, {
         ui.row({ justify = "space_between", align = "center", gap = 8 }, {
             ui.label({
@@ -127,7 +140,7 @@ local function windowRow(window, stale, radius)
     return ui.column({ gap = 4, paddingV = 4 }, rows)
 end
 
-local function accountRow(account, index, stale, scale)
+local function accountRow(account, index, stale, scale, border)
     local children = {
         ui.label({
             text = account.provider,
@@ -166,8 +179,8 @@ local function accountRow(account, index, stale, scale)
         padding = 12,
         fill = "surface_variant/0.58",
         radius = 12 * scale,
-        border = "outline",
-        borderWidth = 1,
+        border = border.color,
+        borderWidth = border.width,
     }, children)
 end
 
@@ -198,6 +211,7 @@ local function render()
         end
     end
     local accounts = ready and data.accounts or {}
+    local border = panelBorder()
     local scale = noctalia.getSetting("shell.corner_radius_scale")
     if type(scale) ~= "number" then
         scale = 1
@@ -227,7 +241,7 @@ local function render()
                 label(tostring(#sessions - 60) .. " more active sessions", 11, "on_surface_variant")
             break
         end
-        content[#content + 1] = sessionRow(session, scale)
+        content[#content + 1] = sessionRow(session, scale, border)
     end
 
     content[#content + 1] = ui.separator({ color = "outline", opacity = 0.2, spacing = 4 })
@@ -249,7 +263,7 @@ local function render()
                 label(tostring(#accounts - 40) .. " more accounts", 11, "on_surface_variant")
             break
         end
-        content[#content + 1] = accountRow(account, index, stale, scale)
+        content[#content + 1] = accountRow(account, index, stale, scale, border)
     end
 
     local refreshed = "Waiting for snapshot"
@@ -261,8 +275,8 @@ local function render()
         flexGrow = 1,
         padding = 16,
         gap = 8,
-        border = "outline",
-        borderWidth = 1,
+        border = border.color,
+        borderWidth = border.width,
         radius = 16 * scale,
     }, {
         ui.row({ justify = "space_between", align = "center" }, {
