@@ -976,6 +976,10 @@ noctalia.state.watch(STATE_KEY, function(value)
     end
 end)
 
+function onOpen()
+    sendCmd("refresh_status")
+end
+
 function onSearchChange(val)
     filterText = if type(val) == "string" then val else ""
     render()

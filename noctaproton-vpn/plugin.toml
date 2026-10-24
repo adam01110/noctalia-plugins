@@ -10,15 +10,6 @@ tags = ["bar", "panel", "service", "shortcut", "network", "privacy", "utility"]
 dependencies = ["proton-vpn-cli", "nmcli", "python"]
 
 [[setting]]
-key = "refresh_interval"
-type = "int"
-label_key = "settings.refresh_interval.label"
-description_key = "settings.refresh_interval.description"
-default = 5
-min = 2
-max = 60
-
-[[setting]]
 key = "traffic_monitoring"
 type = "bool"
 label_key = "settings.traffic_monitoring.label"

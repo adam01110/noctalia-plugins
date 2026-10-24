@@ -64,6 +64,8 @@ local barWidget = setmetatable({}, {
 
 local function loadPanel()
     -- PANEL_SOURCE
+    onOpen()
+    assert(command.op == "refresh_status", "Panel open must refresh cached account/settings")
 end
 loadPanel()
 
@@ -153,3 +155,184 @@ loadBar()
 print(
     "NoctaProton: all tabs, square/scaled corners, configurable/disabled borders, fallback settings and custom panel/actions passed"
 )
+
+do
+    local pending, calls = {}, {}
+    local serviceState, commandWatcher, update, networkEvent
+    local publications = 0
+    local trafficEnabled = true
+    local nmCommand = "nmcli -t -f NAME,TYPE,DEVICE,STATE connection show --active"
+    local link = ""
+    local trafficReads = 0
+    local now = 1000
+    local os = {
+        time = function()
+            return now
+        end,
+    }
+    local noctalia = {
+        setUpdateInterval = function(ms)
+            assert(ms == 1000)
+        end,
+        getConfig = function(key)
+            if key == "traffic_monitoring" then
+                return trafficEnabled
+            end
+            if key == "notify_on_connect" then
+                return false
+            end
+        end,
+        pluginDir = function()
+            return "/plugin"
+        end,
+        expandPath = function(path)
+            return path
+        end,
+        readFile = function(path)
+            if path:find("/statistics/", 1, true) then
+                trafficReads += 1
+                return tostring(now * 100)
+            end
+            return nil
+        end,
+        string = {
+            trim = function(s)
+                return s:match("^%s*(.-)%s*$")
+            end,
+        },
+        json = {
+            decode = function()
+                return nil
+            end,
+        },
+        state = {
+            set = function(_, value)
+                serviceState = value
+                publications += 1
+            end,
+            watch = function(_, callback)
+                commandWatcher = callback
+            end,
+        },
+        runStream = function(cmd, callback)
+            assert(cmd == "sh '/plugin/monitor.sh'")
+            networkEvent = callback
+            return true
+        end,
+        runAsync = function(cmd, callback)
+            calls[cmd] = (calls[cmd] or 0) + 1
+            table.insert(pending, { cmd = cmd, callback = callback })
+        end,
+    }
+    local function loadService()
+        -- SERVICE_SOURCE
+    end
+    local function drain()
+        local count = 0
+        while #pending > 0 do
+            count += 1
+            assert(count < 100, "Unbounded async work")
+            local job = table.remove(pending, 1)
+            local out = ""
+            if job.cmd:find("nmcli", 1, true) then
+                out = link
+            elseif job.cmd == "protonvpn info" then
+                out = "Account: 'user'"
+            elseif job.cmd == "protonvpn status" then
+                out = "Country: US\nServer: different-cli-server-label"
+            elseif job.cmd == "protonvpn config list" then
+                out = "Netshield: off"
+            end
+            job.callback({ exitCode = 0, stdout = out, stderr = "" })
+        end
+    end
+    local function tick(count)
+        for _ = 1, count do
+            now += 1
+            update()
+            drain()
+        end
+    end
+    loadService()
+    drain()
+    assert(calls["protonvpn info"] == 1)
+    local initialPublications = publications
+    tick(600)
+    assert(
+        calls["protonvpn info"] == 1
+            and calls["protonvpn status"] == 1
+            and calls["protonvpn config list"] == 1,
+        "Ten disconnected minutes must not launch Proton queries"
+    )
+    assert(calls[nmCommand] == 1, "Idle NetworkManager must not be polled")
+    assert(
+        publications == initialPublications,
+        "Disconnected idle ticks must not republish unchanged state"
+    )
+    assert(trafficReads == 0, "Disconnected VPN must not read traffic counters")
+    for _ = 1, 20 do
+        networkEvent("unrelated wifi change")
+    end
+    tick(2)
+    assert(calls[nmCommand] == 2, "Network event bursts must coalesce")
+    assert(calls["protonvpn info"] == 1, "Unrelated changes must not launch Proton queries")
+
+    link = "ProtonVPN US#1:wireguard:proton0:activated"
+    networkEvent("VPN activated")
+    tick(3)
+    assert(
+        serviceState.connected and calls["protonvpn info"] == 2,
+        "External connections must refresh metadata promptly"
+    )
+    assert(trafficReads > 0)
+    local connectedPublications = publications
+    tick(600)
+    assert(
+        calls["protonvpn info"] == 2,
+        "Stable connected links must not launch periodic Proton queries"
+    )
+    assert(
+        publications > connectedPublications and serviceState.traffic.rxRate > 0,
+        "Connected traffic must still be published"
+    )
+    networkEvent("resync")
+    tick(2)
+    assert(
+        calls["protonvpn info"] == 2,
+        "Stable links must not refresh because CLI server labels differ"
+    )
+    trafficEnabled = false
+    local disabledReads = trafficReads
+    tick(10)
+    assert(trafficReads == disabledReads, "Disabled monitoring must not read traffic")
+    trafficEnabled = true
+    link = ""
+    networkEvent("VPN disconnected")
+    tick(3)
+    assert(not serviceState.connected and calls["protonvpn info"] == 3)
+    local reads = trafficReads
+    tick(10)
+    assert(trafficReads == reads, "Traffic reads must stop after disconnect")
+
+    local before = calls["protonvpn info"]
+    commandWatcher({ op = "refresh" })
+    commandWatcher({ op = "refresh" })
+    assert(calls["protonvpn info"] == before + 1, "In-flight refreshes must not overlap")
+    drain()
+    tick(1)
+    assert(
+        calls["protonvpn info"] == before + 2,
+        "Refresh during an in-flight poll must not be lost"
+    )
+    commandWatcher({ op = "connect", target = "fastest" })
+    drain()
+    assert(calls["protonvpn info"] == before + 3, "Actions must refresh metadata")
+    tick(600)
+    assert(calls["protonvpn info"] == before + 3, "Actions must not restart periodic polling")
+    commandWatcher({ op = "refresh_status" })
+    drain()
+    assert(calls["protonvpn info"] == before + 4, "Panel open must refresh metadata")
+    print(
+        "NoctaProton service: zero idle command launches over 20 simulated minutes, network events, live traffic, panel/actions and coalescing passed"
+    )
+end

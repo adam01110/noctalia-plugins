@@ -5,11 +5,6 @@
 
 noctalia.setUpdateInterval(1000)
 
-local refreshIntervalSec = tonumber(noctalia.getConfig("refresh_interval")) or 5
-if refreshIntervalSec < 2 then
-    refreshIntervalSec = 2
-end
-
 local STATE_KEY = "protonvpn.status"
 local COMMAND_KEY = "protonvpn.cmd"
 
@@ -86,9 +81,12 @@ local lastTxBytes = -1
 local lastSampleMs = 0
 local connectStartMs = 0
 
-local pollCounter = 0
 local portPollCounter = 0
 local isPolling = false
+local statusRefreshPending = false
+local isCheckingLink = false
+local lastLinkIdentity = ""
+local linkRefreshPending = false
 
 local function publishState()
     snapshot.updatedAt = os.time()
@@ -283,9 +281,16 @@ end
 -- ── Fast NetworkManager Link Check ────────────────────────────────────────
 
 local function checkNmcliLink()
+    if isCheckingLink then
+        linkRefreshPending = true
+        return
+    end
+    linkRefreshPending = false
+    isCheckingLink = true
     noctalia.runAsync(
         "nmcli -t -f NAME,TYPE,DEVICE,STATE connection show --active",
         function(result)
+            isCheckingLink = false
             if result.exitCode == 0 and result.stdout then
                 local found = false
                 local serverName = ""
@@ -312,6 +317,11 @@ local function checkNmcliLink()
                 end
 
                 local wasConnected = snapshot.connected
+                local linkIdentity = found and (dev .. ":" .. serverName) or ""
+                if linkIdentity ~= lastLinkIdentity then
+                    lastLinkIdentity = linkIdentity
+                    statusRefreshPending = true
+                end
                 snapshot.connected = found
                 if found then
                     snapshot.connecting = false
@@ -358,8 +368,10 @@ end
 
 local function pollProtonStatus()
     if isPolling then
+        statusRefreshPending = true
         return
     end
+    statusRefreshPending = false
     isPolling = true
 
     -- Check account authentication first via protonvpn info
@@ -605,6 +617,10 @@ noctalia.state.watch(COMMAND_KEY, function(cmd)
             checkNmcliLink()
             pollProtonStatus()
         end, 10000)
+    elseif op == "refresh_status" then
+        checkNmcliLink()
+        pollProtonStatus()
+        loadSplitTunneling()
     elseif op == "refresh" then
         checkNmcliLink()
         pollProtonStatus()
@@ -616,21 +632,20 @@ end)
 -- ── Main Loop ─────────────────────────────────────────────────────────────
 
 function update()
-    pollCounter += 1
     portPollCounter += 1
 
     -- Sample traffic statistics every 1s
-    if noctalia.getConfig("traffic_monitoring") ~= false then
+    if snapshot.connected and noctalia.getConfig("traffic_monitoring") ~= false then
         sampleTraffic()
+        publishState()
     end
 
-    -- Fast link check every 2s
-    if pollCounter % 2 == 0 then
+    -- Coalesce NetworkManager event bursts without launching idle commands.
+    if linkRefreshPending and not isCheckingLink then
         checkNmcliLink()
     end
 
-    -- Proton CLI status check on configured interval
-    if pollCounter % refreshIntervalSec == 0 then
+    if statusRefreshPending and not isPolling then
         pollProtonStatus()
     end
 
@@ -639,6 +654,14 @@ function update()
         portPollCounter = 0
         renewPortForwarding()
     end
+end
+
+-- The stream is owned by Noctalia and terminated on plugin unload.
+local monitorStarted = noctalia.runStream(`sh '{PLUGIN_DIR}/monitor.sh'`, function()
+    linkRefreshPending = true
+end)
+if not monitorStarted then
+    snapshot.lastError = "Could not start NetworkManager event monitor"
 end
 
 -- Initialize

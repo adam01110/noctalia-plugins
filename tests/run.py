@@ -79,7 +79,7 @@ with tempfile.TemporaryDirectory(prefix="noctalia-plugin-tests-") as directory:
         sys.exit(result.returncode)
     vpn_test = Path(directory) / "noctaproton.luau"
     source = (ROOT / "tests/noctaproton.luau").read_text()
-    for marker, filename in (("PANEL_SOURCE", "panel.luau"), ("BAR_SOURCE", "bar.luau")):
+    for marker, filename in (("PANEL_SOURCE", "panel.luau"), ("BAR_SOURCE", "bar.luau"), ("SERVICE_SOURCE", "service.luau")):
         source = source.replace("-- " + marker, (ROOT / "noctaproton-vpn" / filename).read_text())
     vpn_test.write_text(source)
     result = subprocess.run(

@@ -32,12 +32,8 @@
 			"description": "Show notifications when VPN connects or disconnects.",
 			"label": "Connection notifications"
 		},
-		"refresh_interval": {
-			"description": "How often to poll Proton VPN and NetworkManager for status.",
-			"label": "Status refresh interval (seconds)"
-		},
 		"traffic_monitoring": {
-			"description": "Measure tunnel upload and download speeds.",
+			"description": "Measure tunnel upload and download speeds only while connected.",
 			"label": "Live traffic monitoring"
 		}
 	},
