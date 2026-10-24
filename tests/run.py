@@ -86,4 +86,14 @@ with tempfile.TemporaryDirectory(prefix="noctalia-plugin-tests-") as directory:
     result = subprocess.run(
         [sys.argv[1] if len(sys.argv) > 1 else "luau", str(udiskie_test)], check=False
     )
+    if result.returncode:
+        sys.exit(result.returncode)
+    vpn_test = Path(directory) / "noctaproton.luau"
+    source = (ROOT / "tests/noctaproton.luau").read_text()
+    for marker, filename in (("PANEL_SOURCE", "panel.luau"), ("BAR_SOURCE", "bar.luau")):
+        source = source.replace("-- " + marker, (ROOT / "noctaproton-vpn" / filename).read_text())
+    vpn_test.write_text(source)
+    result = subprocess.run(
+        [sys.argv[1] if len(sys.argv) > 1 else "luau", str(vpn_test)], check=False
+    )
     sys.exit(result.returncode)

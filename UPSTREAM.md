@@ -1,7 +1,7 @@
 # Compatibility and upstream review
 
-These forks target Noctalia **v5.3.0**, plugin API **34**. All four manifests
-now require API 34; older shells must use an earlier repository revision.
+These forks target Noctalia **v5.3.0**, plugin API **34**. All manifests
+require API 34; older shells must use an earlier repository revision.
 API levels are cumulative minimum requirements, not migration versions.
 APIs 29–34 add optional capabilities and require no breaking source migration.
 API 35 and later are not available in the installed v5.3.0 shell.
@@ -39,6 +39,10 @@ Albedo daemon, not Bloom’s code or Claude Code hooks.
   and service IPC targets. The panel retains local corner-radius scaling and
   gives the Settings button an outline when idle. API 34 remains the latest
   released API supported by Noctalia v5.3.0.
+- **NoctaProton VPN:** forked community 1.0.1 as `adam0/noctaproton-vpn`.
+  Custom surfaces scale their radii with `shell.corner_radius_scale`, including
+  square corners. The popup and cards use `shell.panel.borders`, `border_width`,
+  and `border_color`; native controls retain shell styling. Targets API 34.
 
 ## Checks
 

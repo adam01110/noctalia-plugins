@@ -36,6 +36,12 @@
         ];
       };
 
+      settings.formatter.noctaproton-luau = {
+        command = "${pkgs.stylua}/bin/stylua";
+        options = ["--config-path" "${../../noctaproton-vpn/.stylua.toml}"];
+        includes = ["noctaproton-vpn/*.luau" "tests/noctaproton.luau"];
+      };
+
       projectRootFile = "flake.nix";
     };
   };
