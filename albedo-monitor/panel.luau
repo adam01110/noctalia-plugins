@@ -257,7 +257,14 @@ local function render()
         refreshed = "Snapshot " .. os.date("%H:%M:%S", data.received_at)
     end
 
-    panel.render(ui.column({ flexGrow = 1, padding = 16, gap = 8 }, {
+    panel.render(ui.column({
+        flexGrow = 1,
+        padding = 16,
+        gap = 8,
+        border = "outline",
+        borderWidth = 1,
+        radius = 16 * scale,
+    }, {
         ui.row({ justify = "space_between", align = "center" }, {
             ui.row({ gap = 8, align = "center" }, {
                 ui.glyph({ name = "robot", size = 20, color = "primary" }),

@@ -372,6 +372,11 @@ for _, case in ipairs({
     checkProgressRadius(lastPanel, case.radius, 2)
     checkProgressRadius(lastBar, case.radius, 1)
     local scale = case.radius / 2
+    assert(
+        lastPanel.props.border == "outline" and lastPanel.props.borderWidth == 1,
+        "Popup needs its own border"
+    )
+    assert(lastPanel.props.radius == 16 * scale, "Popup radius must follow the user setting")
     local cards = 0
     for _, node in ipairs(collectNodes(lastPanel, "column")) do
         local key = node.props.key or ""
