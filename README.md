@@ -27,10 +27,11 @@ monitor.
 | [CodexBar Meter](./codexbar-meter) | `salemsayed/codexbar-meter` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/codexbar-meter) |
 | [Keybind Cheatsheet](./keybind-cheatsheet) | `kenn/keybind-cheatsheet` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/keybind-cheatsheet) |
 | [Nix Monitor](./nix-monitor) | `avivbintangaringga/nix-monitor` | [community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/nix-monitor) |
-| [Udiskie Manager](./udiskie) | `aristides/udiskie` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/udiskie) |
+| [Udiskie Manager](./udiskie) | `adam0/udiskie` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/udiskie) |
 
-Forks retain their upstream plugin IDs and author identities. Albedo Monitor
-uses its own ID and reads Albedo directly rather than Claude Code hooks.
+Forks retain upstream author identities. Udiskie Manager uses `adam0/udiskie`
+to distinguish it from the community copy. Albedo Monitor uses its own ID and
+reads Albedo directly rather than Claude Code hooks.
 
 ## Usage
 

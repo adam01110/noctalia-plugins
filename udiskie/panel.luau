@@ -12,7 +12,7 @@ local function cornerRadius(default)
 end
 
 local function mountDevice(dev)
-    noctalia.runAsync("noctalia msg plugin aristides/udiskie:service all mount " .. shellQuote(dev))
+    noctalia.runAsync("noctalia msg plugin adam0/udiskie:service all mount " .. shellQuote(dev))
     -- Close the panel when mounting if the file manager will auto-open.
     if noctalia.getConfig("auto_open_filemanager") == true then
         panel.close()
@@ -20,19 +20,19 @@ local function mountDevice(dev)
 end
 
 local function unmountDevice(dev)
-    noctalia.runAsync("noctalia msg plugin aristides/udiskie:service all unmount " .. shellQuote(dev))
+    noctalia.runAsync("noctalia msg plugin adam0/udiskie:service all unmount " .. shellQuote(dev))
 end
 
 local function ejectDevice(dev)
-    noctalia.runAsync("noctalia msg plugin aristides/udiskie:service all eject " .. shellQuote(dev))
+    noctalia.runAsync("noctalia msg plugin adam0/udiskie:service all eject " .. shellQuote(dev))
 end
 
 local function detachDevice(dev)
-    noctalia.runAsync("noctalia msg plugin aristides/udiskie:service all detach " .. shellQuote(dev))
+    noctalia.runAsync("noctalia msg plugin adam0/udiskie:service all detach " .. shellQuote(dev))
 end
 
 local function openPath(path)
-    noctalia.runAsync("noctalia msg plugin aristides/udiskie:service all open " .. shellQuote(path))
+    noctalia.runAsync("noctalia msg plugin adam0/udiskie:service all open " .. shellQuote(path))
     panel.close()
 end
 
@@ -221,7 +221,7 @@ local function renderHeaderRow()
         ui.row({ gap = 6 }, {
             ui.button({
                 glyph = "settings",
-                variant = "ghost",
+                variant = "outline",
                 controlSize = "sm",
                 onClick = function()
                     noctalia.openSettings()
@@ -232,14 +232,14 @@ local function renderHeaderRow()
                 glyph = "link",
                 variant = "secondary",
                 controlSize = "sm",
-                onClick = function() noctalia.runAsync("noctalia msg plugin aristides/udiskie:service all mount_all") end,
+                onClick = function() noctalia.runAsync("noctalia msg plugin adam0/udiskie:service all mount_all") end,
             }),
             ui.button({
                 glyph = "unlink",
                 tooltip = noctalia.tr("btn_unmount_all"),
                 variant = "destructive",
                 controlSize = "sm",
-                onClick = function() noctalia.runAsync("noctalia msg plugin aristides/udiskie:service all unmount_all") end,
+                onClick = function() noctalia.runAsync("noctalia msg plugin adam0/udiskie:service all unmount_all") end,
             }),
         }),
     })
@@ -266,7 +266,7 @@ local function render()
                     variant = "outline",
                     controlSize = "sm",
                     onClick = function()
-                        noctalia.runAsync("noctalia msg plugin aristides/udiskie:service all refresh")
+                        noctalia.runAsync("noctalia msg plugin adam0/udiskie:service all refresh")
                     end,
                 }),
                 ui.button({

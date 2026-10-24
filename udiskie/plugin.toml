@@ -2,9 +2,9 @@
 # A service monitors udiskie events in real time and publishes to shared state.
 # The bar widget renders mount count and the panel provides full device actions.
 
-id = "aristides/udiskie"
+id = "adam0/udiskie"
 name = "Udiskie Manager"
-version = "0.1.1"
+version = "0.1.2"
 plugin_api = 34
 author = "aristides"
 license = "MIT"

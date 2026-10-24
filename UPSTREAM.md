@@ -35,9 +35,10 @@ Albedo daemon, not Bloom’s code or Claude Code hooks.
   restoring them would undo the local scope reduction. Upstream entry names
   `nix_monitor.luau` and `nix_monitor_service.luau` map to local `widget.luau`
   and `service.luau`.
-- **Udiskie Manager:** upstream service and status widget match the local code;
-  the panel differs only in local corner-radius scaling. No upstream functional
-  changes to port.
+- **Udiskie Manager:** uses the distinct `adam0/udiskie` ID, including its panel
+  and service IPC targets. The panel retains local corner-radius scaling and
+  gives the Settings button an outline when idle. API 34 remains the latest
+  released API supported by Noctalia v5.3.0.
 
 ## Checks
 

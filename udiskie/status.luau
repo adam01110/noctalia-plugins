@@ -68,11 +68,11 @@ noctalia.state.watch("udiskie_devices", function()
 end)
 
 function onClick()
-    noctalia.togglePanel("aristides/udiskie:manager")
+    noctalia.togglePanel("adam0/udiskie:manager")
 end
 
 function onRightClick()
-    noctalia.runAsync("noctalia msg plugin aristides/udiskie:service all refresh")
+    noctalia.runAsync("noctalia msg plugin adam0/udiskie:service all refresh")
 end
 
 render()
