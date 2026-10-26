@@ -3,7 +3,10 @@
 local opened = false
 local snapshot = noctalia.state.get("forges.snapshot")
     or { provider = "tangled", status = "loading" }
-local tab = "repositories"
+local tab = snapshot.view or "repositories"
+local notificationFilter = "all"
+local inboxPage = 1
+local INBOX_PAGE_SIZE = 20
 local query, repositoryDraft, inputError = "", "", ""
 local render
 local commandSequence, filterRevision = 0, 0
@@ -142,12 +145,141 @@ local function workRow(item)
         }
     )
 end
+local calendar = { columns = {}, nextWeek = 1 }
+local selectedDay
+local COLORS = { "surface_variant", "primary/0.25", "primary/0.45", "primary/0.7", "primary" }
+local function prepareCalendar()
+    local data = snapshot.contributions
+    if type(data) ~= "table" or type(data.weeks) ~= "table" then
+        return nil
+    end
+    local scale = math.clamp(finite(noctalia.getSetting("shell.corner_radius_scale"), 1), 0, 2)
+    local key = (snapshot.account or "")
+        .. ":"
+        .. tostring((snapshot.versions or {}).contributions or 0)
+        .. ":"
+        .. tostring(scale)
+    if calendar.key ~= key then
+        calendar = { key = key, data = data, columns = {}, nextWeek = 1, scale = scale }
+        selectedDay = nil
+    end
+    panel.setNeedsFrameTick(calendar.node == nil)
+    return data
+end
+local function contributionSection()
+    local data = prepareCalendar()
+    if not data then
+        return label(
+            (snapshot.loading or {}).contributions and "Loading contribution graph…"
+                or "Contribution graph unavailable.",
+            14
+        )
+    end
+    local legend = { label("Less", 10) }
+    for index, color in ipairs(COLORS) do
+        table.insert(
+            legend,
+            ui.box({
+                width = 7,
+                height = 7,
+                radius = calendar.scale * 2,
+                fill = color,
+                opacity = index == 1 and 0.4 or 1,
+            })
+        )
+    end
+    table.insert(legend, label("More", 10))
+    local detail = selectedDay
+            and (selectedDay.date .. " · " .. tostring(selectedDay.count) .. " contributions")
+        or (data.firstDate .. " — " .. data.lastDate)
+    return ui.column({ key = "contribution-calendar", gap = 10 }, {
+        ui.label({
+            text = tostring(data.total) .. " contributions in the last year",
+            fontSize = 16,
+            fontWeight = "semibold",
+        }),
+        calendar.node or ui.column(
+            { height = 61, justify = "center" },
+            { label("Preparing contribution graph…") }
+        ),
+        ui.row(
+            { justify = "space_between" },
+            { label(detail, 11), ui.row({ gap = 3, align = "center" }, legend) }
+        ),
+        label(
+            "Today "
+                .. tostring(data.today)
+                .. "  ·  Current streak "
+                .. tostring(data.currentStreak)
+                .. " days  ·  Best "
+                .. tostring(data.bestStreak)
+                .. " days"
+        ),
+        ui.button({
+            text = "Open GitHub profile",
+            controlSize = "sm",
+            onClick = function()
+                openLink("https://github.com/" .. snapshot.account)
+            end,
+        }),
+    })
+end
+function onFrameTick()
+    if not opened or tab ~= "overview" or calendar.node or not calendar.data then
+        panel.setNeedsFrameTick(false)
+        return
+    end
+    for _ = 1, 4 do
+        local week = calendar.data.weeks[calendar.nextWeek]
+        if not week then
+            break
+        end
+        local cells = {}
+        for day = 1, 7 do
+            local value = week.days[day]
+            if value then
+                table.insert(
+                    cells,
+                    ui.box({
+                        key = "contribution-" .. value.date,
+                        width = 7,
+                        height = 7,
+                        radius = 2 * calendar.scale,
+                        fill = COLORS[value.level + 1],
+                        opacity = value.level == 0 and 0.4 or 1,
+                        tooltip = value.date .. " · " .. tostring(value.count) .. " contributions",
+                        onClick = function()
+                            selectedDay = value
+                            render()
+                        end,
+                    })
+                )
+            else
+                table.insert(cells, ui.box({ width = 7, height = 7 }))
+            end
+        end
+        table.insert(
+            calendar.columns,
+            ui.column({ key = "week-" .. tostring(calendar.nextWeek), gap = 2 }, cells)
+        )
+        calendar.nextWeek += 1
+    end
+    if calendar.nextWeek > #calendar.data.weeks then
+        calendar.node =
+            ui.row({ key = "contribution-grid", gap = 2, align = "start" }, calendar.columns)
+        panel.setNeedsFrameTick(false)
+        render()
+    end
+end
 render = function()
     if not opened then
         return
     end
-    if snapshot.provider ~= "github" and tab == "notifications" then
+    if snapshot.provider ~= "github" and (tab == "notifications" or tab == "overview") then
         tab = "repositories"
+    end
+    if tab ~= "overview" then
+        panel.setNeedsFrameTick(false)
     end
     local forge = snapshot.provider == "github" and "GitHub" or "Tangled"
     local headerActions = {
@@ -194,7 +326,8 @@ render = function()
                     if snapshot.provider == value then
                         return
                     end
-                    tab, query, inputError = "repositories", "", ""
+                    query, inputError = "", ""
+                    filterRevision += 1
                     send({ op = "provider", provider = value })
                 end,
             })
@@ -204,6 +337,7 @@ render = function()
     local definitions =
         { { "repositories", "Repositories" }, { "pulls", "Pull requests" }, { "issues", "Issues" } }
     if snapshot.provider == "github" then
+        table.insert(definitions, 1, { "overview", "Activity" })
         table.insert(definitions, { "notifications", "Inbox" })
     end
     for _, definition in ipairs(definitions) do
@@ -220,6 +354,8 @@ render = function()
                         return
                     end
                     tab, query = key, ""
+                    filterRevision += 1
+                    send({ op = "view", view = key })
                     render()
                 end,
             })
@@ -234,10 +370,14 @@ render = function()
         context = "Your repositories · inspect any repository"
     end
     if tab == "notifications" then
-        context = "GitHub notifications · read-only"
+        context = "Available GitHub notification history · read-only"
+    end
+    if tab == "overview" then
+        context = "Account contributions · past year"
     end
     local content = {}
-    for _, key in ipairs({ "account", "repositories", "pulls", "issues", "notifications" }) do
+    local resourceKey = tab == "overview" and "contributions" or tab
+    for _, key in ipairs({ "account", resourceKey }) do
         local message = (snapshot.errors or {})[key]
         if message then
             table.insert(
@@ -256,6 +396,23 @@ render = function()
     end
     if inputError ~= "" then
         table.insert(content, label(inputError, 12, "error"))
+    end
+    if
+        tab == "repositories"
+        and snapshot.provider == "tangled"
+        and (snapshot.account or "") ~= ""
+    then
+        table.insert(
+            content,
+            ui.button({
+                text = "View Tangled profile and contribution activity",
+                controlSize = "sm",
+                tooltip = "tg does not expose a contribution calendar; open your Tangled profile",
+                onClick = function()
+                    openLink("https://tangled.org/" .. snapshot.account)
+                end,
+            })
+        )
     end
     if tab == "repositories" then
         table.insert(
@@ -276,23 +433,94 @@ render = function()
             })
         )
     end
-    local items = snapshot[tab] or {}
-    local shown = 0
-    for _, item in ipairs(items) do
-        if shown >= 50 then
-            break
+    if tab == "overview" then
+        table.insert(content, contributionSection())
+    end
+    if tab == "notifications" then
+        local filters = {}
+        for _, value in ipairs({ "all", "unread", "read" }) do
+            table.insert(
+                filters,
+                ui.button({
+                    text = value == "all" and "All" or (value == "unread" and "Unread" or "Read"),
+                    controlSize = "sm",
+                    variant = notificationFilter == value and "primary" or "default",
+                    onClick = function()
+                        notificationFilter, inboxPage = value, 1
+                        render()
+                    end,
+                })
+            )
         end
+        table.insert(content, ui.row({ gap = 6 }, filters))
+    end
+    local items = tab ~= "overview" and (snapshot[tab] or {}) or {}
+    local matching = {}
+    for _, item in ipairs(items) do
         local text = (item.name or item.title or "")
             .. " "
             .. (item.repository or "")
             .. " "
             .. (item.description or "")
-        if query == "" or text:lower():find(query:lower(), 1, true) then
-            table.insert(content, tab == "repositories" and repositoryRow(item) or workRow(item))
-            shown += 1
+        local matchesRead = tab ~= "notifications"
+            or notificationFilter == "all"
+            or item.state == notificationFilter
+        if matchesRead and (query == "" or text:lower():find(query:lower(), 1, true)) then
+            table.insert(matching, item)
         end
     end
-    if shown == 0 then
+    local maxPage = math.max(1, math.ceil(#matching / INBOX_PAGE_SIZE))
+    inboxPage = math.clamp(inboxPage, 1, maxPage)
+    local first = tab == "notifications" and ((inboxPage - 1) * INBOX_PAGE_SIZE + 1) or 1
+    local last = math.min(#matching, tab == "notifications" and (inboxPage * INBOX_PAGE_SIZE) or 50)
+    local shown = 0
+    for index = first, last do
+        local item = matching[index]
+        table.insert(content, tab == "repositories" and repositoryRow(item) or workRow(item))
+        shown += 1
+    end
+    if tab == "notifications" and maxPage > 1 then
+        table.insert(
+            content,
+            ui.row({ gap = 8, align = "center" }, {
+                ui.button({
+                    key = "inbox-previous",
+                    text = "Previous",
+                    controlSize = "sm",
+                    enabled = inboxPage > 1,
+                    onClick = function()
+                        inboxPage = math.max(1, inboxPage - 1)
+                        render()
+                    end,
+                }),
+                label("Page " .. tostring(inboxPage) .. " / " .. tostring(maxPage)),
+                ui.button({
+                    key = "inbox-next",
+                    text = "Next",
+                    controlSize = "sm",
+                    enabled = inboxPage < maxPage,
+                    onClick = function()
+                        inboxPage = math.min(maxPage, inboxPage + 1)
+                        render()
+                    end,
+                }),
+            })
+        )
+    end
+    if tab == "notifications" and snapshot.notification_has_more then
+        table.insert(
+            content,
+            ui.button({
+                text = "Load older notifications",
+                controlSize = "md",
+                enabled = not (snapshot.loading or {}).notifications,
+                onClick = function()
+                    send({ op = "notifications_more" })
+                end,
+            })
+        )
+    end
+    if shown == 0 and tab ~= "overview" then
         local empty = "No matching results."
         if query == "" then
             if snapshot.status == "loading" then
@@ -306,7 +534,8 @@ render = function()
             elseif (snapshot.errors or {})[tab] then
                 empty = "Results unavailable. Retry with Refresh."
             else
-                empty = tab == "notifications" and "No unread notifications."
+                empty = tab == "notifications"
+                        and ("No " .. (notificationFilter == "all" and "" or notificationFilter .. " ") .. "notifications in loaded results.")
                     or "No open "
                         .. (tab == "pulls" and "pull requests" or "issues")
                         .. " in this scope."
@@ -333,7 +562,7 @@ render = function()
     if
         snapshot.provider == "github"
         and (snapshot.repository or "") ~= ""
-        and tab ~= "notifications"
+        and (tab == "pulls" or tab == "issues")
     then
         table.insert(
             scopeChildren,
@@ -359,23 +588,37 @@ render = function()
         ),
         ui.row({ gap = 4 }, tabs),
         ui.row({ gap = 6, align = "center" }, scopeChildren),
-        ui.input({
-            key = "filter-" .. snapshot.provider .. "-" .. tab .. "-" .. tostring(filterRevision),
-            placeholder = "Filter " .. (tab == "pulls" and "pull requests" or tab),
-            value = query,
-            onChange = function(value)
-                query = value
-                render()
-            end,
-        }),
+        tab == "overview" and ui.box({ height = 0 })
+            or ui.input({
+                key = "filter-" .. snapshot.provider .. "-" .. tab .. "-" .. tostring(
+                    filterRevision
+                ),
+                placeholder = "Filter " .. (tab == "pulls" and "pull requests" or tab),
+                value = query,
+                onChange = function(value)
+                    query, inboxPage = value, 1
+                    render()
+                end,
+            }),
         ui.scroll(
             { key = "forges-" .. snapshot.provider .. "-" .. tab, flexGrow = 1, gap = 8 },
             content
         ),
-        ui.row(
-            { justify = "space_between" },
-            { label(status), label(tostring(shown) .. " shown · first page") }
-        ),
+        ui.row({ justify = "space_between" }, {
+            label(status),
+            label(
+                tab == "overview" and "Full year"
+                    or (
+                        tostring(shown)
+                        .. " shown · "
+                        .. (
+                            tab == "notifications"
+                                and ("of " .. tostring(#matching) .. " loaded")
+                            or "first page"
+                        )
+                    )
+            ),
+        }),
     }))
 end
 noctalia.state.watch("forges.snapshot", function(value)
@@ -386,6 +629,7 @@ noctalia.state.watch("forges.snapshot", function(value)
         query, repositoryDraft, inputError = "", "", ""
     end
     snapshot = value
+    tab = snapshot.view or (snapshot.provider == "github" and "overview" or "repositories")
     render()
 end)
 function onOpen()
@@ -394,6 +638,7 @@ function onOpen()
 end
 function onClose()
     opened = false
+    panel.setNeedsFrameTick(false)
 end
 function onConfigChanged()
     render()

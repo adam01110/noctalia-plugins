@@ -1,4 +1,11 @@
 --!nonstrict
+local clock = 1700000000
+local os = {
+    date = os.date,
+    time = function()
+        return clock
+    end,
+}
 local GitHub = (function()
     -- GITHUB_SOURCE
 end)()
@@ -20,7 +27,8 @@ local function copy(value)
     return result
 end
 local config, settings, values, watches, queue, exists, failStart
-local calls, lastPanel, panelRenders, lastCommand, lastLaunch, glyph, tooltip, toggled
+local calls, lastPanel, panelRenders, lastCommand, lastLaunch, glyph, tooltip, toggled, wantsFrames
+local nodeCreations = 0
 local noctalia = {
     nowMs = function()
         return 100
@@ -109,97 +117,289 @@ local tgWork = {
         { rkey = "abc123", title = "A task", author = { handle = "alice.test" }, state = "open" },
     },
 }
-local function tangleresults()
-    respond({ authenticated = true, handle = "alice.test" })
-    respond(tgRepo)
-    respond(tgWork)
-    respond({ items = {} })
+local function calendarFixture(login, weekCount)
+    local weeks, total = {}, 0
+    for week = 1, weekCount or 2 do
+        local days = {}
+        for day = 0, 6 do
+            local n = (week + day) % 5
+            total += n
+            table.insert(days, {
+                date = os.date("!%Y-%m-%d", 1700352000 + ((week - 1) * 7 + day) * 86400),
+                weekday = day,
+                contributionCount = n,
+                contributionLevel = ({
+                    "NONE",
+                    "FIRST_QUARTILE",
+                    "SECOND_QUARTILE",
+                    "THIRD_QUARTILE",
+                    "FOURTH_QUARTILE",
+                })[n + 1],
+            })
+        end
+        table.insert(weeks, { contributionDays = days })
+    end
+    return {
+        data = {
+            viewer = {
+                login = login or "octocat",
+                contributionsCollection = {
+                    contributionCalendar = { totalContributions = total, weeks = weeks },
+                },
+            },
+        },
+    }
+end
+local function githubResults(kind, title)
+    return {
+        items = {
+            {
+                number = kind == "pulls" and 1 or 2,
+                title = title or "Task",
+                state = "open",
+                repository_url = "https://api.github.com/repos/octocat/example",
+                html_url = "https://github.com/octocat/example/issues/1",
+            },
+        },
+    }
+end
+local function respondGh(value, id, login)
+    respond(value)
+    assert(
+        queue[1].argv[3] == "user",
+        "REST results need a postflight account check before publication"
+    )
+    respond({ id = id or 1, login = login or "octocat" })
 end
 boot()
 service()
 assert(queue[1].argv[1] == "tg", "Tangled is the default")
-tangleresults()
-assert(snapshot().status == "ready" and snapshot().account == "alice.test")
-assert(snapshot().repository == "alice.test/project" and #snapshot().pulls == 1)
-assert(snapshot().pulls[1].url == "https://tangled.org/alice.test/project/pulls")
+respond({ authenticated = true, handle = "alice.test", did = "alice-did" })
 assert(
-    snapshot().pulls[1].linkLabel == "Open repository pull requests",
-    "Tangled record keys must not masquerade as numeric AppView web IDs"
+    queue[1].argv[#queue[1].argv] == "alice-did",
+    "Tangled resources are pinned to the verified account"
 )
-assert(#snapshot().notifications == 0 and #queue == 0, "Do not fake a Tangled notification API")
-local original = copy(snapshot())
-send({ op = "refresh" })
-local count = calls
-send({ op = "refresh" })
-assert(calls == count, "Deduplicate same-generation refresh")
-respond({ authenticated = true, handle = "alice.test" })
 respond(tgRepo)
-respond("not-json")
-respond({ items = {} })
-assert(snapshot().status == "partial" and snapshot().stale and #snapshot().pulls == 1)
+assert(snapshot().status == "ready" and snapshot().account == "alice.test" and #queue == 0)
 assert(
-    snapshot().updated_at == original.updated_at,
-    "Failure must not advance last successful refresh"
+    snapshot().repository == "alice.test/project" and #snapshot().pulls == 0,
+    "Initial repository view must not prefetch unrelated work"
 )
-assert(not snapshot().errors.pulls:find("secret", 1, true), "Never publish raw stderr")
+local before = calls
+send({ op = "repository", repository = "alice.test/project" })
+assert(
+    calls == before + 1 and queue[1].argv[2] == "pr",
+    "Inspect loads only PRs, not account/repositories/inbox"
+)
+respond(tgWork)
+assert(
+    #snapshot().pulls == 1
+        and snapshot().pulls[1].url == "https://tangled.org/alice.test/project/pulls"
+)
+assert(snapshot().pulls[1].linkLabel == "Open repository pull requests")
+send({ op = "view", view = "issues" })
+respond({ items = {} })
+assert(#snapshot().issues == 0)
+before = calls
+send({ op = "view", view = "issues" })
+send({ op = "view", view = "pulls" })
+send({ op = "view", view = "repositories" })
+send({ op = "provider", provider = "tangled" })
+onConfigChanged()
+assert(calls == before, "Cached views, valid empty results and unchanged config issue no requests")
 send({ op = "repository", repository = "--evil/repo" })
-assert(#queue == 0)
+assert(calls == before)
 send({ op = "repository", repository = "alice.test/.." })
-assert(#queue == 0)
+assert(calls == before)
 send({ op = "repository", repository = "alice.test/other;echo" })
-assert(#queue == 0)
-send({ op = "repository", repository = "bob.test/other" })
-assert(#snapshot().pulls == 0 and snapshot().repository == "bob.test/other")
-respond({ authenticated = true, handle = "alice.test" })
-respond(tgRepo)
-local oldPull = assert(table.remove(queue, 1))
-local oldIssue = assert(table.remove(queue, 1))
-send({ op = "repository", repository = "bob.test/new" })
-oldPull.callback({ exitCode = 0, stdout = tgWork })
-oldIssue.callback({ exitCode = 0, stdout = tgWork })
-assert(
-    #snapshot().pulls == 0 and #snapshot().issues == 0,
-    "Ignore callbacks from old repository scope"
-)
-respond({ authenticated = true, handle = "alice.test" })
-respond(tgRepo)
-respond({ items = {} })
-respond({ items = {} })
-send({ op = "refresh" })
-local delayed = assert(table.remove(queue, 1))
+assert(calls == before)
 send({ op = "provider", provider = "github" })
 assert(
     snapshot().provider == "github" and snapshot().account == "" and #snapshot().repositories == 0
 )
-delayed.callback({ exitCode = 0, stdout = { authenticated = true, handle = "old.test" } })
-assert(snapshot().account == "", "Ignore callbacks from old provider")
-assert(queue[1].argv[1] == "gh")
-respond({ login = "octocat" })
-respond({ { full_name = "octocat/example", description = "Example" } })
-assert(queue[1].argv[3]:find("involves:@me", 1, true))
-respond({ items = {} })
-respond({ items = {} })
-respond({})
+respond({ id = 1, login = "octocat" })
 assert(
-    snapshot().provider == "github"
-        and snapshot().status == "ready"
-        and snapshot().account == "octocat"
+    queue[1].argv[3] == "graphql",
+    "GitHub restores the contribution calendar as its default view"
+)
+respond(calendarFixture())
+assert(snapshot().status == "ready" and snapshot().contributions.total > 0 and #queue == 0)
+send({ op = "view", view = "repositories" })
+respondGh({ { full_name = "octocat/example", description = "Example" } })
+send({ op = "view", view = "pulls" })
+assert(queue[1].argv[3]:find("involves:@me", 1, true))
+respondGh(githubResults("pulls"))
+send({ op = "view", view = "issues" })
+respondGh(githubResults("issues"))
+send({ op = "view", view = "notifications" })
+assert(
+    queue[1].argv[3] == "notifications?all=true&per_page=50&page=1",
+    "Inbox includes read and unread history"
+)
+local notices = {}
+for index = 1, 50 do
+    notices[index] = {
+        id = tostring(index),
+        unread = index % 2 == 1,
+        subject = {
+            title = "Notice " .. tostring(index),
+            type = "Issue",
+            url = "https://api.github.com/repos/o/r/issues/1",
+        },
+        repository = { full_name = "o/r" },
+    }
+end
+respondGh(notices)
+assert(#snapshot().notifications == 50 and snapshot().notification_has_more)
+send({ op = "notifications_more" })
+assert(queue[1].argv[3]:find("page=2", 1, true))
+respondGh({ notices[50], { id = "51", subject = { title = "Older read notice" } } })
+assert(
+    #snapshot().notifications == 51
+        and snapshot().notification_page == 2
+        and not snapshot().notification_has_more
 )
 send({ op = "refresh" })
-respond("", 1, "To get started with GitHub CLI, please run: gh auth login")
+respond({ id = 1, login = "octocat" })
+respond("network failure", 1)
 assert(
-    snapshot().status == "auth_error" and snapshot().account == "" and #snapshot().repositories == 0,
-    "GitHub logout clears private account data rather than displaying stale rows"
+    #snapshot().notifications == 51 and snapshot().notification_page == 2 and snapshot().stale,
+    "Failed inbox refresh must preserve all previously loaded history and page metadata"
 )
-config.provider = "github"
-onConfigChanged()
-assert(queue[1].argv[1] == "gh")
-respond({ login = "other-account" })
-respond({})
+before = calls
+send({ op = "provider", provider = "tangled" })
+assert(snapshot().account == "alice.test")
+send({ op = "provider", provider = "github" })
+assert(snapshot().account == "octocat" and #snapshot().notifications == 51)
+send({ op = "view", view = "repositories" })
+send({ op = "view", view = "overview" })
+send({ op = "view", view = "notifications" })
+assert(calls == before, "Provider switches retain independent graph/repository/work/inbox caches")
+-- Inactive responses may populate only their own cache, not whichever view is active.
+send({ op = "repository", repository = "octocat/a" })
+local oldA = assert(table.remove(queue, 1))
+send({ op = "repository", repository = "octocat/b" })
+local oldB = assert(table.remove(queue, 1))
+send({ op = "provider", provider = "tangled" })
+oldA.callback({ exitCode = 0, stdout = githubResults("pulls", "A") })
+oldB.callback({ exitCode = 0, stdout = githubResults("pulls", "B") })
+respond({ id = 1, login = "octocat" })
+respond({ id = 1, login = "octocat" })
+assert(snapshot().provider == "tangled" and snapshot().account == "alice.test")
+before = calls
+send({ op = "provider", provider = "github" })
+assert(snapshot().pulls[1].title == "B")
+send({ op = "repository", repository = "octocat/a" })
+assert(snapshot().pulls[1].title == "A")
+assert(
+    calls == before and #snapshot().notifications == 51,
+    "Repository cache survives A -> B -> A without refetching anything"
+)
+-- Confirmed account change invalidates the old account epoch, including pending resources.
+send({ op = "view", view = "issues" })
+local oldIssue = assert(table.remove(queue, 1))
+send({ op = "refresh" })
+respond({ id = 2, login = "other-account" })
+oldIssue.callback({ exitCode = 0, stdout = githubResults("issues", "Private old issue") })
+respondGh({ items = {} }, 2, "other-account")
+assert(
+    snapshot().account == "other-account"
+        and #snapshot().issues == 0
+        and #snapshot().repositories == 0
+)
+assert(
+    #snapshot().notifications == 0
+        and snapshot().contributions == nil
+        and snapshot().repository == ""
+)
+send({ op = "view", view = "overview" })
+local oldGraph = assert(table.remove(queue, 1))
+send({ op = "refresh" })
+respond("", 1, "To get started with GitHub CLI, please run: gh auth login")
+oldGraph.callback({ exitCode = 0, stdout = calendarFixture("other-account") })
+assert(
+    snapshot().status == "auth_error"
+        and snapshot().account == ""
+        and snapshot().contributions == nil,
+    "Logout clears private caches and prevents late graph callbacks from repopulating them"
+)
+-- Loading older results after a CLI account switch must never append B data to A.
+boot({ provider = "github" })
+service()
+respond({ id = 1, login = "octocat" })
+respond(calendarFixture())
+send({ op = "view", view = "notifications" })
+respondGh(notices)
+send({ op = "notifications_more" })
+respond({ { id = "private-B", subject = { title = "Account B only" } } })
+assert(
+    snapshot().account == "octocat" and #snapshot().notifications == 50,
+    "Unverified REST results must not be displayed"
+)
+respond({ id = 2, login = "other-account" })
+assert(
+    snapshot().account == "other-account"
+        and #snapshot().notifications == 0
+        and snapshot().contributions == nil
+)
+assert(queue[1].argv[3] == "notifications?all=true&per_page=50&page=1")
+respondGh({ { id = "B", subject = { title = "B first page" } } }, 2, "other-account")
+assert(
+    #snapshot().notifications == 1
+        and snapshot().notifications[1].id == "B"
+        and snapshot().notification_page == 1
+)
+-- Failure freshness is per resource and never advances the last-success timestamp.
+boot()
+service()
+respond({ authenticated = true, handle = "alice.test" })
+respond(tgRepo)
+send({ op = "repository", repository = "alice.test/project" })
+respond(tgWork)
+local lastSuccess = snapshot().updated_at
+send({ op = "refresh" })
+respond("unavailable", 1)
+assert(snapshot().status == "partial" and snapshot().stale and #snapshot().pulls == 1)
+assert(
+    snapshot().updated_at == lastSuccess and not snapshot().errors.account:find("secret", 1, true)
+)
+send({ op = "view", view = "issues" })
+assert(
+    queue[1].argv[2] == "issue",
+    "A transient profile refresh failure must not block other pinned-account views"
+)
 respond({ items = {} })
+send({ op = "view", view = "pulls" })
+send({ op = "refresh" })
+respond({ authenticated = true, handle = "alice.test" })
+assert(
+    #queue == 1 and queue[1].argv[2] == "pr",
+    "Manual refresh targets the current resource, not every list"
+)
+respond("bad-json")
+assert(snapshot().status == "partial" and snapshot().stale and #snapshot().pulls == 1)
+before = calls
+send({ op = "view", view = "repositories" })
+assert(calls == before and snapshot().status == "ready")
+send({ op = "view", view = "pulls" })
+assert(calls == before and snapshot().status == "partial")
+clock += 901
+update()
+assert(queue[1].argv[2] == "auth")
+respond({ authenticated = true, handle = "alice.test" })
 respond({ items = {} })
-respond({})
-assert(snapshot().account == "other-account" and #snapshot().repositories == 0)
+assert(
+    snapshot().status == "ready" and #snapshot().pulls == 0 and snapshot().updated_at > lastSuccess
+)
+before = calls
+send({ op = "view", view = "pulls" })
+assert(calls == before, "An empty successful result is a cache hit")
+send({ op = "refresh" })
+before = calls
+send({ op = "refresh" })
+assert(calls == before, "In-flight auth and resource loads are coalesced")
+respond({ authenticated = false })
+assert(snapshot().status == "auth_error" and snapshot().account == "" and #snapshot().pulls == 0)
 boot()
 exists = false
 service()
@@ -207,37 +407,34 @@ assert(snapshot().status == "missing_cli" and #queue == 0)
 boot()
 failStart = true
 service()
-assert(
-    snapshot().status == "auth_error" and #queue == 0,
-    "Failure to spawn must not leave loading stuck"
-)
+assert(snapshot().status == "partial" and #queue == 0)
 boot()
 service()
-respond({ authenticated = false })
-assert(snapshot().status == "auth_error" and snapshot().account == "")
+respond("bad-json")
+assert(snapshot().status == "partial" and snapshot().account == "")
 boot()
 service()
 respond({ authenticated = true, handle = "new.test" })
 respond({ items = {} })
-assert(snapshot().status == "ready" and snapshot().repository == "" and #queue == 0)
+assert(snapshot().status == "ready" and snapshot().repository == "")
 send({ op = "repository", repository = "tangled.org/core" })
+assert(queue[1].argv[4] == "tangled.org/core", "External repository remains a literal argv element")
+respond(tgWork)
+-- Retain at most eight repository scopes, and report temporary in-flight backpressure.
+for index = 1, 12 do
+    send({ op = "repository", repository = "alice.test/repo" .. tostring(index) })
+end
+assert(
+    #queue <= 8 and snapshot().errors.pulls,
+    "Bound pending repository caches instead of growing indefinitely"
+)
+while #queue > 0 do
+    respond(tgWork)
+end
+send({ op = "refresh" })
 respond({ authenticated = true, handle = "new.test" })
-respond({ items = {} })
-assert(queue[1].argv[4] == "tangled.org/core", "External repository stays a literal argv element")
 respond(tgWork)
-respond(tgWork)
-send({ op = "refresh" })
-respond("unavailable", 1)
-assert(
-    snapshot().status == "partial" and snapshot().stale and #snapshot().pulls == 1,
-    "Network failure during account lookup must retain labelled last-good results"
-)
-send({ op = "refresh" })
-respond({ authenticated = false })
-assert(
-    snapshot().status == "auth_error" and snapshot().account == "" and #snapshot().pulls == 0,
-    "Authentication loss must clear account-owned data"
-)
+assert(snapshot().status == "ready" and snapshot().repository == "alice.test/repo12")
 local many = { items = {} }
 for index = 1, 100 do
     many.items[index] = tgWork.items[1]
@@ -246,10 +443,33 @@ assert(#Tangled.normalizeWork(many, "a/b", "issues") == 30)
 assert(Tangled.normalizeWork({}, "a/b", "issues") == nil)
 assert(Data.work({}) == nil and Tangled.normalizeProfile({ authenticated = false }) == nil)
 assert(GitHub.work("issues", "a/b")[3]:find("repo:a/b", 1, true))
+local graphData = assert(Data.contributions(calendarFixture("octocat", 54)))
+assert(#graphData.weeks == 54 and #graphData.weeks[1].days == 7)
+local invalidGraph = calendarFixture()
+invalidGraph.errors = { { message = "denied" } }
+assert(
+    Data.contributions(invalidGraph) == nil,
+    "Exit-zero GraphQL errors must not become an empty calendar"
+)
+invalidGraph = calendarFixture()
+invalidGraph.data.viewer.contributionsCollection.contributionCalendar.totalContributions = 0 / 0
+assert(Data.contributions(invalidGraph) == nil)
+invalidGraph = calendarFixture()
+invalidGraph.data.viewer.contributionsCollection.contributionCalendar.weeks[1].contributionDays[2].weekday =
+    0
+assert(Data.contributions(invalidGraph) == nil, "Duplicate calendar slots must be rejected")
+local partialWeek = calendarFixture()
+table.remove(
+    partialWeek.data.viewer.contributionsCollection.contributionCalendar.weeks[1].contributionDays,
+    1
+)
+local partialData = assert(Data.contributions(partialWeek))
+assert(partialData.weeks[1].days[1] == false and partialData.weeks[1].days[2] ~= false)
 
 local ui = setmetatable({}, {
     __index = function(_, kind)
         return function(props, children)
+            nodeCreations += 1
             return { kind = kind, props = props or {}, children = children or {} }
         end
     end,
@@ -260,6 +480,9 @@ local panel = {
         panelRenders += 1
     end,
     close = function() end,
+    setNeedsFrameTick = function(value)
+        wantsFrames = value
+    end,
 }
 local function panelEntry()
     -- PANEL_SOURCE
@@ -376,6 +599,129 @@ assert(find("button", function(props)
     return props.tooltip == "Open repository"
 end)).props.onClick()
 assert(lastLaunch[1] == "xdg-open" and lastLaunch[2] == "https://tangled.org/alice.test/project")
+-- Inbox filters operate on the same fetched page and never touch the service.
+local inboxSnapshot = {
+    provider = "github",
+    account = "octocat",
+    view = "notifications",
+    status = "ready",
+    repository = "",
+    notifications = Data.notifications(notices),
+    errors = {},
+    loading = {},
+    notification_has_more = true,
+}
+noctalia.state.set("forges.snapshot", inboxSnapshot)
+assert(find("column", function(props)
+    return props.key == "github-notifications-o/r-1"
+end))
+assert(find("column", function(props)
+    return props.key == "github-notifications-o/r-2"
+end))
+local filterCalls = calls
+assert(find("button", function(props)
+    return props.text == "Read"
+end)).props.onClick()
+assert(not find("column", function(props)
+    return props.key == "github-notifications-o/r-1"
+end))
+assert(find("column", function(props)
+    return props.key == "github-notifications-o/r-2"
+end))
+assert(find("button", function(props)
+    return props.text == "Unread"
+end)).props.onClick()
+assert(find("column", function(props)
+    return props.key == "github-notifications-o/r-1"
+end))
+assert(not find("column", function(props)
+    return props.key == "github-notifications-o/r-2"
+end))
+assert(find("button", function(props)
+    return props.text == "All"
+end)).props.onClick()
+assert(calls == filterCalls, "All/read/unread filtering must issue zero network requests")
+assert(not find("column", function(props)
+    return props.key == "github-notifications-o/r-21"
+end), "Only 20 matching inbox rows are rendered at once")
+assert(find("button", function(props)
+    return props.key == "inbox-next"
+end)).props.onClick()
+assert(find("column", function(props)
+    return props.key == "github-notifications-o/r-21"
+end))
+assert(not find("column", function(props)
+    return props.key == "github-notifications-o/r-1"
+end))
+assert(calls == filterCalls, "Paging through loaded history must issue zero requests")
+assert(find("button", function(props)
+    return props.text == "Load older notifications"
+end)).props.onClick()
+assert(lastCommand.op == "notifications_more")
+-- A complete 54-week calendar is built off the render callback in bounded chunks.
+local graphSnapshot = {
+    provider = "github",
+    account = "octocat",
+    view = "overview",
+    status = "ready",
+    contributions = graphData,
+    versions = { contributions = 1 },
+    errors = {},
+    loading = {},
+}
+settings["shell.corner_radius_scale"] = 0
+noctalia.state.set("forges.snapshot", graphSnapshot)
+assert(wantsFrames and not find("row", function(props)
+    return props.key == "contribution-grid"
+end))
+for frame = 1, 14 do
+    local created = nodeCreations
+    onFrameTick()
+    assert(nodeCreations - created < 100, "Graph preparation must stay bounded per frame")
+end
+local grid = assert(find("row", function(props)
+    return props.key == "contribution-grid"
+end))
+assert(
+    #grid.children == 54 and not wantsFrames,
+    "Show the entire year rather than truncating graph weeks"
+)
+local cellCount, dayCell = 0, nil
+walk(grid, function(node)
+    if node.kind == "box" and node.props.key then
+        cellCount += 1
+        dayCell = node
+        assert(node.props.radius == 0 and node.props.tooltip:find("contributions", 1, true))
+    end
+end)
+assert(cellCount == 378, "All bounded source calendar days must remain visible")
+dayCell.props.onClick()
+assert(find("label", function(props)
+    return props.text:find("contributions", 1, true) ~= nil
+end))
+local oldGrid = grid
+noctalia.state.set("forges.snapshot", graphSnapshot)
+local reusedGrid = find("row", function(props)
+    return props.key == "contribution-grid"
+end)
+assert(
+    reusedGrid == oldGrid and not wantsFrames,
+    "Unrelated snapshot publications must reuse the prepared calendar"
+)
+settings["shell.corner_radius_scale"] = 1.5
+onConfigChanged()
+assert(wantsFrames)
+onFrameTick()
+onClose()
+assert(not wantsFrames)
+onOpen()
+for _ = 1, 14 do
+    onFrameTick()
+end
+grid = assert(find("row", function(props)
+    return props.key == "contribution-grid"
+end))
+assert(grid.children[1].children[1].props.radius == 3)
 local renders = panelRenders
 onClose()
 noctalia.state.set("forges.snapshot", values["forges.snapshot"])
@@ -392,10 +738,11 @@ local barWidget = {
 local function widgetEntry()
     -- WIDGET_SOURCE
 end
+values["forges.snapshot"] = { provider = "tangled", account = "alice.test", status = "ready" }
 widgetEntry()
 assert(glyph == "git-branch" and tooltip:find("Tangled", 1, true))
 onClick()
 assert(toggled == "adam0/forges:panel")
 print(
-    "Forges: provider/CLI contracts, race isolation, scoped last-good recovery, auth/JSON/spawn errors, native surfaces, filtering, links and widget passed"
+    "Forges: independent provider/resource caches, zero-request switches and inbox filters, paged read/unread history, complete staged graph, account invalidation, race/error recovery and native surfaces passed"
 )

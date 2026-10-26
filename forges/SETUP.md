@@ -23,19 +23,49 @@ Changing the default in settings also switches the current session.
 Repositories lists up to 50 repositories returned by the CLI. Inspect a row, or
 enter `owner/repository`, to view its open pull requests and issues (up to 30 each).
 Tangled work is repository-scoped; the first returned repository is selected
-initially. GitHub starts with open work involving your account across repositories;
-All work returns to that scope. GitHub Inbox shows up to 30 unread notifications,
-without marking them read. Search filters the fetched first page, not the server.
+initially. GitHub opens on Activity, restoring the full-year contribution calendar
+and today/current/best-streak metrics. Graph construction is staged and reused
+across renders. Day tooltips and clicks show the date and contribution count.
+Tangled's `tg` CLI has no contribution-calendar endpoint; the Tangled profile
+button opens its native contribution activity instead of inventing an empty graph.
+GitHub's All work scope shows open PRs/issues involving your account across repos.
+
+GitHub Inbox includes read **and** unread notifications, without marking them
+read. All/Unread/Read filters and 20-row display pages are local and issue no
+requests. Load older notifications fetches the next 50-item server page, retaining
+up to 500 available notifications. The UI labels these as loaded history, not a
+complete archive. Search filters loaded results, not the server.
 Tangled work links open the repository's pull-request/issue list: `tg` 0.6 returns
 AT Protocol record keys, not the numeric AppView IDs required for item deep links.
 GitHub work links open individual items.
 
-This redesign focuses on repositories and open work. The upstream contribution
-heatmap, following/release feed, Actions dashboard, notification read-state writes,
-and appearance overrides are not included. It is not an editable Kanban board.
-Last-good results are retained in memory for same-account/same-scope refreshes,
-not persisted to disk. Switching providers clears the displayed account and rows;
-late callbacks from previous providers or repositories are discarded.
+## Fetching and caches
+
+Each forge retains its own verified account and independent in-memory caches for
+repositories, contributions, inbox history, and repository-scoped PR/issue lists.
+Switching providers or revisiting a fresh view reuses these results immediately;
+it does not refetch other lists. The first visit loads only the selected view.
+Repository changes fetch only the requested work list. Up to eight repository
+scopes are retained per forge. Valid empty results are cached too.
+
+Refresh explicitly reloads the current view, not every resource. The configured
+interval controls freshness; a stale selected view revalidates in the background
+while its last-good results remain visible. Inactive providers do not poll. A
+failed request neither erases successful results nor advances their freshness.
+Caches are session-local and are not written to disk.
+
+Tangled requests are pinned with `tg --account` to the verified account. GitHub
+requests target github.com explicitly; REST data is withheld until a postflight
+account check, and GraphQL calendars include their viewer identity. A detected
+account change or logout clears private caches and invalidates pending callbacks.
+The separate `gh` processes cannot make credentials atomic against an account
+switch and switch-back during a single request; no tokens are read or passed in
+arguments. Late same-account responses can fill their own provider/repository
+cache without changing the active view.
+
+The following/release feed, Actions dashboard, notification read-state writes,
+and independent appearance overrides are still not included. It is not an
+editable Kanban board.
 
 ## Native surfaces
 

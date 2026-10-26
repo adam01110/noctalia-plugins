@@ -3,11 +3,16 @@ local Tangled = {}
 function Tangled.profile()
     return { "tg", "auth", "status", "--json" }
 end
-function Tangled.repositories()
-    return { "tg", "repo", "list", "--json" }
+function Tangled.repositories(account)
+    local argv = { "tg", "repo", "list", "--json" }
+    if account then
+        table.insert(argv, "--account")
+        table.insert(argv, account)
+    end
+    return argv
 end
-function Tangled.work(kind, repository)
-    return {
+function Tangled.work(kind, repository, account)
+    local argv = {
         "tg",
         kind == "pulls" and "pr" or "issue",
         "list",
@@ -18,12 +23,17 @@ function Tangled.work(kind, repository)
         "30",
         "--json",
     }
+    if account then
+        table.insert(argv, "--account")
+        table.insert(argv, account)
+    end
+    return argv
 end
 function Tangled.normalizeProfile(raw)
     if raw.authenticated ~= true or type(raw.handle) ~= "string" or raw.handle == "" then
         return nil
     end
-    return { login = raw.handle, name = raw.handle }
+    return { id = raw.did or raw.handle, login = raw.handle, name = raw.handle }
 end
 function Tangled.normalizeRepositories(raw)
     if type(raw.items) ~= "table" then

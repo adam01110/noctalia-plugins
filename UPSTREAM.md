@@ -29,7 +29,9 @@ scaling.
   [`63150dc53560297140164083b4d14d4aaaf59bc8`](https://github.com/noctalia-dev/community-plugins/tree/63150dc53560297140164083b4d14d4aaaf59bc8/github-kanban)
   as `adam0/forges`, targeting API 34 rather than upstream API 43. Tangled via
   `tg` is the startup default, with a session provider switch and shared
-  repository/PR/issue lists; GitHub also has a read-only inbox. Custom radii and
+  repository/PR/issue lists; GitHub also has its restored contribution calendar
+  and a paged read/all/unread inbox. Per-provider/resource caches avoid unrelated
+  refetches on navigation. Custom radii and
   outlines follow shell settings, and the panel defaults to floating near-click
   placement. See [Forges setup and scope](forges/SETUP.md) for retained features
   and intentional differences. Upstream declares MIT but supplies no separate
