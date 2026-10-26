@@ -97,24 +97,18 @@ end
 local function renderConnectionsTab()
     local rows = {}
 
-    -- Quick connect feature row
+    -- Fastest is the primary action above; keep specialty routes secondary.
+    local canConnect = snapshot.signedIn and not snapshot.busy and not snapshot.connecting
     table.insert(
         rows,
-        ui.row({ gap = 6, align = "center" }, {
-            ui.button({
-                text = noctalia.tr("actions.fastest"),
-                glyph = "bolt",
-                controlSize = "sm",
-                flexGrow = 1,
-                onClick = function()
-                    sendCmd("connect", { target = "fastest" })
-                end,
-            }),
+        ui.row({ gap = 8, align = "center" }, {
             ui.button({
                 text = "Random",
                 glyph = "arrows-shuffle",
+                variant = "ghost",
                 controlSize = "sm",
                 flexGrow = 1,
+                enabled = canConnect,
                 onClick = function()
                     sendCmd("connect", { target = "random" })
                 end,
@@ -122,8 +116,10 @@ local function renderConnectionsTab()
             ui.button({
                 text = "P2P",
                 glyph = "download",
+                variant = "ghost",
                 controlSize = "sm",
                 flexGrow = 1,
+                enabled = canConnect,
                 onClick = function()
                     sendCmd("connect", { target = "p2p" })
                 end,
@@ -131,8 +127,10 @@ local function renderConnectionsTab()
             ui.button({
                 text = "Tor",
                 glyph = "eye-off",
+                variant = "ghost",
                 controlSize = "sm",
                 flexGrow = 1,
+                enabled = canConnect,
                 onClick = function()
                     sendCmd("connect", { target = "tor" })
                 end,
@@ -147,9 +145,9 @@ local function renderConnectionsTab()
             ui.input({
                 key = "country-search",
                 value = filterText,
-                placeholder = "Search country (e.g. US, Germany)...",
+                placeholder = "Search countries",
                 flexGrow = 1,
-                controlSize = "sm",
+                controlSize = "md",
                 onChange = "onSearchChange",
             }),
             ui.button({
@@ -186,50 +184,40 @@ local function renderConnectionsTab()
                 ui.row({
                     key = `country-{code}`,
                     align = "center",
-                    paddingV = 6,
+                    gap = 12,
+                    paddingV = 8,
                     paddingH = 8,
-                    radius = 8 * scale,
-                    border = borderColor,
-                    borderWidth = borderWidth,
-                    fill = isCurrentCountry and "primary/0.15" or "surface_variant/0.3",
+                    fill = isCurrentCountry and "primary/0.12" or "transparent",
                 }, {
-                    ui.row({
-                        width = 34,
-                        height = 24,
-                        radius = 4 * scale,
-                        border = borderColor,
-                        borderWidth = borderWidth,
-                        fill = isCurrentCountry and "primary" or "surface_variant",
-                        align = "center",
-                        justify = "center",
-                    }, {
-                        ui.label({
-                            text = code,
-                            fontSize = 11,
-                            fontWeight = "bold",
-                            color = isCurrentCountry and "on_primary" or "on_surface_variant",
-                        }),
+                    ui.label({
+                        text = code,
+                        visible = name ~= code,
+                        width = 28,
+                        fontSize = 12,
+                        fontWeight = "bold",
+                        color = isCurrentCountry and "primary" or "on_surface_variant",
                     }),
                     ui.column({ flexGrow = 1, gap = 2 }, {
                         ui.label({
                             text = name,
-                            fontSize = 13,
+                            maxLines = 1,
+                            fontSize = 14,
                             fontWeight = isCurrentCountry and "bold" or "normal",
                             color = isCurrentCountry and "primary" or "on_surface",
                         }),
                         ui.label({
                             text = `{c.count or 0} servers  ·  {c.load or 50}% load`,
-                            fontSize = 11,
+                            fontSize = 12,
                             color = "on_surface_variant",
                         }),
                     }),
                     ui.button({
-                        text = isCurrentCountry and noctalia.tr("status.connected")
-                            or noctalia.tr("actions.connect"),
-                        variant = isCurrentCountry and "primary" or "default",
+                        tooltip = isCurrentCountry and noctalia.tr("status.connected")
+                            or `{noctalia.tr("actions.connect")}: {name}`,
+                        variant = "ghost",
                         glyph = isCurrentCountry and "check" or "player-play",
                         controlSize = "sm",
-                        enabled = not isCurrentCountry and not snapshot.busy,
+                        enabled = not isCurrentCountry and canConnect,
                         onClick = function()
                             sendCmd("connect", { target = code })
                         end,
@@ -245,7 +233,8 @@ local function renderConnectionsTab()
             ui.column({ align = "center", padding = 20, gap = 6 }, {
                 ui.glyph({ name = "search", size = 28, color = "on_surface_variant" }),
                 ui.label({
-                    text = "No matching countries found",
+                    text = #countryList == 0 and "Country list unavailable"
+                        or "No matching countries",
                     color = "on_surface_variant",
                     fontSize = 12,
                 }),
@@ -257,7 +246,7 @@ local function renderConnectionsTab()
             ui.scroll({
                 key = "countries-scroll",
                 flexGrow = 1,
-                gap = 6,
+                gap = 2,
                 align = "stretch",
             }, listItems)
         )
@@ -294,11 +283,12 @@ local function renderProtectionTab()
                     ui.label({
                         text = noctalia.tr("protection.killswitch"),
                         fontWeight = "bold",
-                        fontSize = 13,
+                        fontSize = 14,
                     }),
                     ui.label({
                         text = noctalia.tr("protection.killswitch_desc"),
-                        fontSize = 11,
+                        maxLines = 3,
+                        fontSize = 12,
                         color = "on_surface_variant",
                     }),
                 }),
@@ -337,21 +327,22 @@ local function renderProtectionTab()
                     ui.label({
                         text = noctalia.tr("protection.netshield"),
                         fontWeight = "bold",
-                        fontSize = 13,
+                        fontSize = 14,
                     }),
                     ui.label({
                         text = noctalia.tr("protection.netshield_desc"),
-                        fontSize = 11,
+                        maxLines = 3,
+                        fontSize = 12,
                         color = "on_surface_variant",
                     }),
                 }),
             }),
-            ui.row({ gap = 6, align = "center" }, {
+            ui.column({ gap = 6, align = "stretch" }, {
                 ui.button({
                     text = noctalia.tr("protection.netshield_off"),
                     variant = (nsVal == "off") and "primary" or "default",
                     controlSize = "sm",
-                    flexGrow = 1,
+                    enabled = not snapshot.busy,
                     onClick = function()
                         sendCmd("set_netshield", { value = "off" })
                     end,
@@ -360,7 +351,7 @@ local function renderProtectionTab()
                     text = noctalia.tr("protection.netshield_malware"),
                     variant = (nsVal == "malware-only") and "primary" or "default",
                     controlSize = "sm",
-                    flexGrow = 1,
+                    enabled = not snapshot.busy,
                     onClick = function()
                         sendCmd("set_netshield", { value = "malware-only" })
                     end,
@@ -369,7 +360,7 @@ local function renderProtectionTab()
                     text = noctalia.tr("protection.netshield_all"),
                     variant = (nsVal == "malware-ads-trackers") and "primary" or "default",
                     controlSize = "sm",
-                    flexGrow = 1,
+                    enabled = not snapshot.busy,
                     onClick = function()
                         sendCmd("set_netshield", { value = "malware-ads-trackers" })
                     end,
@@ -391,11 +382,12 @@ local function renderProtectionTab()
                 ui.label({
                     text = noctalia.tr("protection.port_forwarding"),
                     fontWeight = "bold",
-                    fontSize = 13,
+                    fontSize = 14,
                 }),
                 ui.label({
                     text = noctalia.tr("protection.port_forwarding_desc"),
-                    fontSize = 11,
+                    maxLines = 3,
+                    fontSize = 12,
                     color = "on_surface_variant",
                 }),
             }),
@@ -472,11 +464,12 @@ local function renderProtectionTab()
                 ui.label({
                     text = noctalia.tr("protection.split_tunneling"),
                     fontWeight = "bold",
-                    fontSize = 13,
+                    fontSize = 14,
                 }),
                 ui.label({
                     text = noctalia.tr("protection.split_tunneling_desc"),
-                    fontSize = 11,
+                    maxLines = 3,
+                    fontSize = 12,
                     color = "on_surface_variant",
                 }),
             }),
@@ -495,7 +488,7 @@ local function renderProtectionTab()
             splitChildren,
             ui.label({
                 text = noctalia.tr("protection.split_tunneling_warning"),
-                fontSize = 11,
+                fontSize = 12,
                 color = "on_surface_variant",
             })
         )
@@ -506,7 +499,7 @@ local function renderProtectionTab()
             splitChildren,
             ui.label({
                 text = "Connect once with Proton VPN to initialize configuration.",
-                fontSize = 11,
+                fontSize = 12,
                 color = "on_surface_variant",
             })
         )
@@ -548,7 +541,7 @@ local function renderProtectionTab()
                 splitChildren,
                 ui.label({
                     text = "No apps excluded yet.",
-                    fontSize = 11,
+                    fontSize = 12,
                     color = "on_surface_variant",
                 })
             )
@@ -676,7 +669,7 @@ local function renderAccountTab()
                 fill = "surface_variant/0.35",
             }, {
                 ui.label({
-                    text = "Enter your Proton username or email below to sign in:",
+                    text = "Sign in to Proton VPN",
                     fontSize = 12,
                     fontWeight = "bold",
                     color = "on_surface",
@@ -684,7 +677,7 @@ local function renderAccountTab()
                 ui.input({
                     key = "signin-username-input",
                     value = signinUserDraft,
-                    placeholder = "Proton username or email (e.g. user@proton.me)...",
+                    placeholder = "Username or email",
                     controlSize = "sm",
                     onChange = function(v)
                         signinUserDraft = tostring(v or "")
@@ -699,8 +692,9 @@ local function renderAccountTab()
                     end,
                 }),
                 ui.label({
-                    text = "A secure terminal will prompt for your Proton password & 2FA.",
-                    fontSize = 11,
+                    text = "Password and 2FA are entered in a terminal.",
+                    maxLines = 2,
+                    fontSize = 12,
                     color = "on_surface_variant",
                 }),
             })
@@ -735,39 +729,30 @@ local function renderAccountTab()
             ui.label({ text = "Information", fontWeight = "bold", fontSize = 12 }),
             ui.row({ gap = 6 }, {
                 ui.label({
-                    text = "CLI Version:",
-                    fontSize = 11,
-                    color = "on_surface_variant",
-                    width = 100,
-                }),
-                ui.label({ text = "Proton VPN CLI v1.0.3", fontSize = 11, flexGrow = 1 }),
-            }),
-            ui.row({ gap = 6 }, {
-                ui.label({
                     text = "Protocol:",
-                    fontSize = 11,
+                    fontSize = 12,
                     color = "on_surface_variant",
                     width = 100,
                 }),
-                ui.label({ text = snapshot.protocol or "WireGuard", fontSize = 11, flexGrow = 1 }),
+                ui.label({ text = snapshot.protocol or "WireGuard", fontSize = 12, flexGrow = 1 }),
             }),
             ui.row({ gap = 6 }, {
                 ui.label({
-                    text = "Tunnel Interface:",
-                    fontSize = 11,
+                    text = "Interface:",
+                    fontSize = 12,
                     color = "on_surface_variant",
                     width = 100,
                 }),
                 ui.label({
                     text = snapshot.device ~= "" and snapshot.device or "proton0",
-                    fontSize = 11,
+                    fontSize = 12,
                     flexGrow = 1,
                 }),
             }),
         })
     )
 
-    return ui.column({ gap = 10, flexGrow = 1, align = "stretch" }, rows)
+    return ui.scroll({ key = "account-scroll", gap = 12, flexGrow = 1, align = "stretch" }, rows)
 end
 
 -- ── Main Render ───────────────────────────────────────────────────────────
@@ -805,38 +790,44 @@ render = function()
                     text = connected
                             and `{snapshot.city ~= "" and (snapshot.city .. ", ") or ""}{snapshot.country}  ·  {snapshot.ip}`
                         or (
-                            snapshot.signedIn and "No active tunnel"
-                            or noctalia.tr("account.signin_hint")
+                            connecting and "Establishing a secure tunnel"
+                            or (
+                                snapshot.signedIn and "No active tunnel"
+                                or "Open Account to sign in"
+                            )
                         ),
-                    fontSize = 11,
+                    fontSize = 12,
                     color = "on_surface_variant",
                     maxLines = 1,
                 }),
             }),
-            ui.button({
-                text = connected and noctalia.tr("actions.disconnect")
-                    or (
-                        snapshot.signedIn and noctalia.tr("actions.quick_connect")
-                        or noctalia.tr("actions.signin")
-                    ),
-                variant = connected and "default" or "primary",
-                glyph = connected and "player-stop"
-                    or (snapshot.signedIn and "player-play" or "login"),
-                controlSize = "sm",
-                enabled = not snapshot.busy,
-                onClick = function()
-                    if connected then
-                        sendCmd("disconnect")
-                    elseif snapshot.signedIn then
-                        sendCmd("connect", { target = "fastest" })
-                    else
-                        activeTab = "account"
-                        render()
-                    end
-                end,
-            }),
         }),
     }
+
+    table.insert(
+        connCardChildren,
+        ui.button({
+            text = connected and noctalia.tr("actions.disconnect")
+                or (
+                    snapshot.signedIn and noctalia.tr("actions.quick_connect")
+                    or noctalia.tr("actions.signin")
+                ),
+            variant = connected and "default" or "primary",
+            glyph = connected and "player-stop" or (snapshot.signedIn and "player-play" or "login"),
+            controlSize = "md",
+            enabled = not snapshot.busy and not connecting,
+            onClick = function()
+                if connected then
+                    sendCmd("disconnect")
+                elseif snapshot.signedIn then
+                    sendCmd("connect", { target = "fastest" })
+                else
+                    activeTab = "account"
+                    render()
+                end
+            end,
+        })
+    )
 
     -- If connected: live bandwidth stats
     if connected and snapshot.traffic then
@@ -847,20 +838,18 @@ render = function()
 
         table.insert(
             connCardChildren,
-            ui.row({
-                gap = 12,
-                align = "center",
-                paddingT = 4,
-            }, {
-                ui.row({ gap = 4, align = "center" }, {
-                    ui.glyph({ name = "arrow-down", size = 13, color = "primary" }),
-                    ui.label({ text = rx, fontSize = 11, fontWeight = "bold" }),
-                    ui.label({ text = `({totRx})`, fontSize = 10, color = "on_surface_variant" }),
+            ui.row({ gap = 12, align = "center" }, {
+                ui.column({ flexGrow = 1, gap = 2 }, {
+                    ui.label({ text = `↓ {rx}`, fontSize = 12, fontWeight = "bold" }),
+                    ui.label({
+                        text = `{totRx} received`,
+                        fontSize = 12,
+                        color = "on_surface_variant",
+                    }),
                 }),
-                ui.row({ gap = 4, align = "center" }, {
-                    ui.glyph({ name = "arrow-up", size = 13, color = "secondary" }),
-                    ui.label({ text = tx, fontSize = 11, fontWeight = "bold" }),
-                    ui.label({ text = `({totTx})`, fontSize = 10, color = "on_surface_variant" }),
+                ui.column({ flexGrow = 1, gap = 2 }, {
+                    ui.label({ text = `↑ {tx}`, fontSize = 12, fontWeight = "bold" }),
+                    ui.label({ text = `{totTx} sent`, fontSize = 12, color = "on_surface_variant" }),
                 }),
             })
         )
@@ -872,7 +861,7 @@ render = function()
         border = borderColor,
         borderWidth = borderWidth,
         fill = connected and "primary/0.12" or "surface_variant/0.4",
-        gap = 4,
+        gap = 12,
         align = "stretch",
     }, connCardChildren)
 
@@ -880,7 +869,6 @@ render = function()
     local tabNav = ui.row({ gap = 4, align = "center" }, {
         ui.button({
             text = noctalia.tr("tabs.connections"),
-            glyph = "world",
             variant = (activeTab == "connections") and "primary" or "ghost",
             flexGrow = 1,
             onClick = function()
@@ -890,7 +878,6 @@ render = function()
         }),
         ui.button({
             text = noctalia.tr("tabs.protection"),
-            glyph = "shield",
             variant = (activeTab == "protection") and "primary" or "ghost",
             flexGrow = 1,
             onClick = function()
@@ -900,7 +887,6 @@ render = function()
         }),
         ui.button({
             text = noctalia.tr("tabs.account"),
-            glyph = "user",
             variant = (activeTab == "account") and "primary" or "ghost",
             flexGrow = 1,
             onClick = function()
@@ -923,7 +909,8 @@ render = function()
     -- Main Panel Layout
     panel.render(ui.column({
         flexGrow = 1,
-        gap = 10,
+        padding = 12,
+        gap = 12,
         align = "stretch",
     }, {
         -- Header

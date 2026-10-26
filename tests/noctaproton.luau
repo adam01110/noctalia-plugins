@@ -125,7 +125,7 @@ local function checkTheme(scale, width, color)
     for _, tab in ipairs({ "connections", "protection", "account" }) do
         button(lastPanel, "tabs." .. tab).onClick()
         if tab == "connections" then
-            assert(button(lastPanel, "actions.fastest").variant == nil)
+            assert(button(lastPanel, "Random").variant == "ghost")
         end
         checkSurfaces(lastPanel, scale, width, color)
         checkButtons(lastPanel)
@@ -162,8 +162,87 @@ checkTheme(1, 1, "outline")
 button(lastPanel, "x").onClick()
 assert(toggled == "adam0/noctaproton-vpn:panel")
 button(lastPanel, "tabs.connections").onClick()
-button(lastPanel, "actions.fastest").onClick()
+snapshot.connected = false
+watcher(snapshot)
+button(lastPanel, "actions.quick_connect").onClick()
 assert(command.op == "connect" and command.target == "fastest")
+snapshot.connected = true
+watcher(snapshot)
+
+local function nodeByKey(node, key)
+    if node.props.key == key then
+        return node
+    end
+    for _, child in ipairs(node.children) do
+        local found = nodeByKey(child, key)
+        if found then
+            return found
+        end
+    end
+end
+
+local function checkReadable(node)
+    if node.kind == "label" and node.props.fontSize then
+        assert(node.props.fontSize >= 12, "Panel text must not fall below 12px")
+    end
+    for _, child in ipairs(node.children) do
+        checkReadable(child)
+    end
+end
+
+settings = {}
+for _, tab in ipairs({ "connections", "protection", "account" }) do
+    button(lastPanel, "tabs." .. tab).onClick()
+    checkReadable(lastPanel)
+    assert(lastPanel.props.padding == 12, "Content needs an outer gutter")
+    assert(button(lastPanel, "tabs." .. tab).glyph == nil, "Text tabs must reserve room for labels")
+end
+assert(nodeByKey(lastPanel, "account-scroll"), "Account content must scroll")
+button(lastPanel, "tabs.protection").onClick()
+assert(
+    button(lastPanel, "protection.netshield_all").flexGrow == nil,
+    "Long NetShield labels must stack rather than compete for row width"
+)
+button(lastPanel, "tabs.connections").onClick()
+assert(button(lastPanel, "actions.fastest") == nil, "Do not repeat the primary fastest action")
+assert(nodeByKey(lastPanel, "country-search").props.controlSize == "md")
+local country = nodeByKey(lastPanel, "country-NL")
+assert(
+    country.props.borderWidth == nil and country.props.radius == nil,
+    "Country list must not nest outlined cards"
+)
+local connect = button(country, "player-play")
+assert(connect.text == nil and connect.tooltip:find("Netherlands", 1, true))
+connect.onClick()
+assert(command.op == "connect" and command.target == "NL")
+for _, target in ipairs({ { "Random", "random" }, { "P2P", "p2p" }, { "Tor", "tor" } }) do
+    button(lastPanel, target[1]).onClick()
+    assert(command.op == "connect" and command.target == target[2])
+end
+onSearchChange("nether")
+assert(nodeByKey(lastPanel, "country-NL") and not nodeByKey(lastPanel, "country-US"))
+onSearchChange("not-a-country")
+assert(not nodeByKey(lastPanel, "countries-scroll"))
+onSearchChange(42)
+assert(nodeByKey(lastPanel, "country-US"), "Invalid input must clear the filter")
+for _, state in ipairs({ "busy", "connecting", "signedOut" }) do
+    snapshot.busy = state == "busy"
+    snapshot.connecting = state == "connecting"
+    snapshot.signedIn = state ~= "signedOut"
+    watcher(snapshot)
+    assert(not button(lastPanel, "Random").enabled)
+    assert(not button(nodeByKey(lastPanel, "country-NL"), "player-play").enabled)
+end
+snapshot.connected = false
+watcher(snapshot)
+button(lastPanel, "actions.signin").onClick()
+assert(nodeByKey(lastPanel, "signin-username-input"), "Sign In must open Account")
+checkReadable(lastPanel)
+snapshot.connected = true
+snapshot.connecting = false
+snapshot.busy = false
+snapshot.signedIn = true
+watcher(snapshot)
 
 local function loadBar()
     -- BAR_SOURCE
