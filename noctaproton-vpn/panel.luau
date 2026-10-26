@@ -154,7 +154,6 @@ local function renderConnectionsTab()
                 onChange = "onSearchChange",
             }),
             ui.button({
-                fontSize = 12,
                 glyph = "x",
                 variant = "ghost",
                 controlSize = "sm",
@@ -219,7 +218,6 @@ local function renderConnectionsTab()
                         }),
                     }),
                     ui.button({
-                        fontSize = 12,
                         tooltip = isCurrentCountry and noctalia.tr("status.connected")
                             or `{noctalia.tr("actions.connect")}: {name}`,
                         variant = "ghost",
@@ -525,7 +523,6 @@ local function renderProtectionTab()
                     ui.glyph({ name = "app-window", size = 14, color = "on_surface_variant" }),
                     ui.label({ text = appName, fontSize = 11, flexGrow = 1, maxLines = 1 }),
                     ui.button({
-                        fontSize = 12,
                         glyph = "trash",
                         variant = "ghost",
                         controlSize = "sm",
@@ -941,7 +938,6 @@ render = function()
                 flexGrow = 1,
             }),
             ui.button({
-                fontSize = 12,
                 glyph = "refresh",
                 controlSize = "sm",
                 onClick = function()
@@ -949,7 +945,6 @@ render = function()
                 end,
             }),
             ui.button({
-                fontSize = 12,
                 glyph = "x",
                 controlSize = "sm",
                 onClick = function()

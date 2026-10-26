@@ -103,7 +103,14 @@ end
 
 local function checkButtons(node)
     if node.kind == "button" then
-        assert(node.props.fontSize == 12, "Buttons must use compact text")
+        if node.props.glyph and not node.props.text then
+            assert(
+                node.props.fontSize == nil,
+                "Icon-only buttons must not create an empty text label"
+            )
+        else
+            assert(node.props.fontSize == 12, "Buttons must use compact text")
+        end
         assert(node.props.controlSize == "sm", "Buttons must use the native small height")
         assert(node.props.variant ~= "outline", "Idle buttons must use the native surface variant")
     end
