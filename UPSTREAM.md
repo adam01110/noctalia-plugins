@@ -17,7 +17,8 @@ References:
 **Albedo Monitor** (`adam0/albedo-monitor`) is an original API-34 plugin inspired
 by Bloom’s session and usage indicator. It uses an albedo-suite helper and the
 Albedo daemon, not Bloom’s code or Claude Code hooks. The shell owns the outer
-popup outline; session/account cards retain configured outlines. Header buttons
+popup outline; the panel defaults to floating placement so that outline is
+visible. Session/account cards retain configured outlines. Header buttons
 use native default surfaces, matching Color Picker. Secondary and bar text use
 a 12px base; section and card headings use 14px, before native accessibility
 scaling.
@@ -40,9 +41,10 @@ scaling.
   released API supported by Noctalia v5.3.0.
 - **NoctaProton VPN:** forked community 1.0.1 as `adam0/noctaproton-vpn`.
   Custom surfaces scale their radii with `shell.corner_radius_scale`, including
-  square corners. Noctalia owns the outer popup outline; card outlines use
-  `shell.panel.borders`, `border_width`, and `border_color`. Buttons use native
-  surface styling rather than transparent outlined variants. Targets API 34.
+  square corners. Floating placement enables Noctalia’s outer popup outline;
+  card outlines use `shell.panel.borders`, `border_width`, and `border_color`.
+  Buttons use native surface styling rather than transparent outlined variants.
+  Targets API 34.
 - **World Clock:** imported official 1.2.1 from
   [`e1eac19947d4dbb7adb5a22c1de41ec348c4ca3d`](https://github.com/noctalia-dev/official-plugins/tree/e1eac19947d4dbb7adb5a22c1de41ec348c4ca3d/world_clock)
   as 1.2.2 targeting API 34. Retains the `noctalia/world_clock` ID and Noctalia

@@ -6,8 +6,17 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Noctalia draws shell.panel borders only for floating panel surfaces.
+for plugin in ("albedo-monitor", "noctaproton-vpn"):
+    manifest = tomllib.loads((ROOT / plugin / "plugin.toml").read_text())
+    panel = manifest["panel"][0]
+    assert panel["placement"] == "floating", f"{plugin}: popup must use native floating borders"
+    assert panel["position"] == "auto" and panel["open_near_click"] is True
+print("Panel placement regression checks passed", flush=True)
 
 
 def lua_value(value):

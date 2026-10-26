@@ -36,7 +36,7 @@ id = "panel"
 entry = "panel.luau"
 width = 460
 height = 580
-placement = "attached"
+placement = "floating"
 position = "auto"
 open_near_click = true
 
