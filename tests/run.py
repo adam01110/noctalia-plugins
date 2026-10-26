@@ -15,6 +15,7 @@ for plugin in ("albedo-monitor", "noctaproton-vpn", "forges"):
     manifest = tomllib.loads((ROOT / plugin / "plugin.toml").read_text())
     if plugin == "forges":
         assert manifest["plugin_api"] == 34, "Forges must remain compatible with API 34"
+        assert manifest["panel"][0]["height"] == 800, "Forges needs the requested taller workspace"
     panel = manifest["panel"][0]
     assert panel["placement"] == "floating", f"{plugin}: popup must use native floating borders"
     assert panel["position"] == "auto" and panel["open_near_click"] is True

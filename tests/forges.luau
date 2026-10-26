@@ -26,7 +26,7 @@ local function copy(value)
     end
     return result
 end
-local config, settings, values, watches, queue, exists, failStart
+local config, settings, values, watches, queue, exists, failStart, missingCommands
 local calls, lastPanel, panelRenders, lastCommand, lastLaunch, glyph, tooltip, toggled, wantsFrames
 local nodeCreations = 0
 local noctalia = {
@@ -40,8 +40,8 @@ local noctalia = {
     getSetting = function(key)
         return settings[key]
     end,
-    commandExists = function()
-        return exists
+    commandExists = function(name)
+        return exists and not missingCommands[name]
     end,
     setUpdateInterval = function(value)
         assert(value >= 300000 and value <= 3600000)
@@ -90,7 +90,7 @@ local noctalia = {
 }
 local function boot(options)
     config = options or {}
-    settings, values, watches, queue = {}, {}, {}, {}
+    settings, values, watches, queue, missingCommands = {}, {}, {}, {}, {}
     exists, failStart, calls = true, false, 0
 end
 local function service()
@@ -220,12 +220,17 @@ assert(
 respond({ id = 1, login = "octocat" })
 assert(
     queue[1].argv[3] == "graphql",
-    "GitHub restores the contribution calendar as its default view"
+    "GitHub loads its pinned contribution calendar alongside the default queue"
 )
 respond(calendarFixture())
-assert(snapshot().status == "ready" and snapshot().contributions.total > 0 and #queue == 0)
-send({ op = "view", view = "repositories" })
 respondGh({ { full_name = "octocat/example", description = "Example" } })
+assert(
+    snapshot().status == "ready"
+        and snapshot().view == "repositories"
+        and snapshot().contributions.total > 0
+        and #queue == 0
+)
+send({ op = "view", view = "repositories" })
 send({ op = "view", view = "pulls" })
 assert(queue[1].argv[3]:find("involves:@me", 1, true))
 respondGh(githubResults("pulls"))
@@ -261,6 +266,8 @@ assert(
 )
 send({ op = "refresh" })
 respond({ id = 1, login = "octocat" })
+assert(queue[1].argv[3] == "graphql", "Refresh reloads the visible pinned calendar too")
+respond(calendarFixture())
 respond("network failure", 1)
 assert(
     #snapshot().notifications == 51 and snapshot().notification_page == 2 and snapshot().stale,
@@ -300,6 +307,8 @@ send({ op = "view", view = "issues" })
 local oldIssue = assert(table.remove(queue, 1))
 send({ op = "refresh" })
 respond({ id = 2, login = "other-account" })
+local oldGraph = assert(table.remove(queue, 1))
+assert(oldGraph.argv[3] == "graphql")
 oldIssue.callback({ exitCode = 0, stdout = githubResults("issues", "Private old issue") })
 respondGh({ items = {} }, 2, "other-account")
 assert(
@@ -313,7 +322,6 @@ assert(
         and snapshot().repository == ""
 )
 send({ op = "view", view = "overview" })
-local oldGraph = assert(table.remove(queue, 1))
 send({ op = "refresh" })
 respond("", 1, "To get started with GitHub CLI, please run: gh auth login")
 oldGraph.callback({ exitCode = 0, stdout = calendarFixture("other-account") })
@@ -328,6 +336,7 @@ boot({ provider = "github" })
 service()
 respond({ id = 1, login = "octocat" })
 respond(calendarFixture())
+respondGh({})
 send({ op = "view", view = "notifications" })
 respondGh(notices)
 send({ op = "notifications_more" })
@@ -342,6 +351,7 @@ assert(
         and #snapshot().notifications == 0
         and snapshot().contributions == nil
 )
+respond(calendarFixture("other-account"))
 assert(queue[1].argv[3] == "notifications?all=true&per_page=50&page=1")
 respondGh({ { id = "B", subject = { title = "B first page" } } }, 2, "other-account")
 assert(
@@ -435,6 +445,31 @@ send({ op = "refresh" })
 respond({ authenticated = true, handle = "new.test" })
 respond(tgWork)
 assert(snapshot().status == "ready" and snapshot().repository == "alice.test/repo12")
+-- Profile controls resolve only the target identity, even before its forge is selected.
+boot()
+service()
+send({ op = "profile", provider = "tangled" })
+assert(#queue == 1, "Profile clicks coalesce with initial account verification")
+respond({ authenticated = true, handle = "alice.test" })
+assert(lastLaunch[2] == "https://tangled.org/alice.test" and queue[1].argv[2] == "repo")
+respond(tgRepo)
+send({ op = "profile", provider = "github" })
+assert(#queue == 1 and queue[1].argv[3] == "user")
+respond({ id = 1, login = "octocat" })
+assert(
+    lastLaunch[2] == "https://github.com/octocat"
+        and #queue == 0
+        and snapshot().provider == "tangled",
+    "Opening inactive profiles must not switch provider or fetch any queues or graph"
+)
+send({ op = "profile", provider = "github" })
+assert(#queue == 0 and lastLaunch[2] == "https://github.com/octocat")
+missingCommands["xdg-open"] = true
+send({ op = "profile", provider = "tangled" })
+assert(snapshot().action_error:find("Missing xdg-open", 1, true))
+missingCommands["xdg-open"] = nil
+send({ op = "profile", provider = "tangled" })
+assert(snapshot().action_error == nil)
 local many = { items = {} }
 for index = 1, 100 do
     many.items[index] = tgWork.items[1]
@@ -516,6 +551,24 @@ values["forges.snapshot"] = {
 }
 panelEntry()
 onOpen()
+local actions = lastPanel.children[1].children[3].children
+assert(
+    actions[1].props.key == "profile-tangled"
+        and actions[2].props.key == "profile-github"
+        and actions[3].props.tooltip == "Refresh",
+    "Both profile controls must sit immediately left of reload"
+)
+assert(
+    lastPanel.children[2].props.key == "provider-switch"
+        and lastPanel.children[3].props.key == "tangled-contributions",
+    "Tangled contribution shortcut belongs directly below forge selection, outside the list"
+)
+actions[1].props.onClick()
+assert(lastCommand.op == "profile" and lastCommand.provider == "tangled")
+actions[2].props.onClick()
+assert(lastCommand.op == "profile" and lastCommand.provider == "github")
+lastPanel.children[3].props.onClick()
+assert(lastCommand.op == "profile" and lastCommand.provider == "tangled")
 local row = assert(find("column", function(props)
     return props.key == "tangled-repo-alice.test/project"
 end))
@@ -574,7 +627,7 @@ assert(find("button", function(props)
     return props.text == "Repositories"
 end)).props.onClick()
 assert(find("button", function(props)
-    return props.text == "Tangled"
+    return props.key == "provider-tangled"
 end)).props.onClick()
 assert(not find("column", function(props)
     return props.key == "tangled-repo-alice.test/project"
@@ -585,7 +638,7 @@ end))
 assert(filter.props.key == activeKey)
 filter.props.onChange("")
 assert(find("button", function(props)
-    return props.text == "GitHub"
+    return props.key == "provider-github"
 end)).props.onClick()
 assert(lastCommand.op == "provider" and lastCommand.provider == "github")
 assert(find("button", function(props)
@@ -662,7 +715,7 @@ assert(lastCommand.op == "notifications_more")
 local graphSnapshot = {
     provider = "github",
     account = "octocat",
-    view = "overview",
+    view = "repositories",
     status = "ready",
     contributions = graphData,
     versions = { contributions = 1 },
@@ -699,6 +752,13 @@ dayCell.props.onClick()
 assert(find("label", function(props)
     return props.text:find("contributions", 1, true) ~= nil
 end))
+assert(
+    lastPanel.children[3].props.key == "contribution-calendar",
+    "GitHub graph must stay above queue tabs and scrolling lists"
+)
+assert(not find("button", function(props)
+    return props.text == "Activity" or props.text == "Open GitHub profile"
+end))
 local oldGrid = grid
 noctalia.state.set("forges.snapshot", graphSnapshot)
 local reusedGrid = find("row", function(props)
@@ -722,6 +782,33 @@ grid = assert(find("row", function(props)
     return props.key == "contribution-grid"
 end))
 assert(grid.children[1].children[1].props.radius == 3)
+local pinnedGrid = grid
+graphSnapshot.view = "issues"
+noctalia.state.set("forges.snapshot", graphSnapshot)
+assert(lastPanel.children[3].props.key == "contribution-calendar")
+assert(find("row", function(props)
+    return props.key == "contribution-grid"
+end) == pinnedGrid, "Switching queues must retain the prepared pinned calendar")
+local sparseGraph = copy(graphData)
+sparseGraph.weeks[1].days[1] = false
+sparseGraph.weeks[#sparseGraph.weeks].days[7] = false
+graphSnapshot.contributions, graphSnapshot.versions.contributions = sparseGraph, 2
+noctalia.state.set("forges.snapshot", graphSnapshot)
+for _ = 1, 14 do
+    onFrameTick()
+end
+grid = assert(find("row", function(props)
+    return props.key == "contribution-grid"
+end))
+for _, cell in ipairs({ grid.children[1].children[1], grid.children[#grid.children].children[7] }) do
+    assert(
+        cell.props.fill == "transparent"
+            and cell.props.opacity == 0
+            and not cell.props.onClick
+            and not cell.props.tooltip,
+        "Absent leading/future slots must be transparent, not black zero-activity days"
+    )
+end
 local renders = panelRenders
 onClose()
 noctalia.state.set("forges.snapshot", values["forges.snapshot"])
@@ -744,5 +831,5 @@ assert(glyph == "git-branch" and tooltip:find("Tangled", 1, true))
 onClick()
 assert(toggled == "adam0/forges:panel")
 print(
-    "Forges: independent provider/resource caches, zero-request switches and inbox filters, paged read/unread history, complete staged graph, account invalidation, race/error recovery and native surfaces passed"
+    "Forges: pinned contribution header, transparent calendar gaps, independent profile actions, provider/resource caches, inbox history/filters, account invalidation, race/error recovery and native surfaces passed"
 )

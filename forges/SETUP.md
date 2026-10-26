@@ -23,11 +23,18 @@ Changing the default in settings also switches the current session.
 Repositories lists up to 50 repositories returned by the CLI. Inspect a row, or
 enter `owner/repository`, to view its open pull requests and issues (up to 30 each).
 Tangled work is repository-scoped; the first returned repository is selected
-initially. GitHub opens on Activity, restoring the full-year contribution calendar
-and today/current/best-streak metrics. Graph construction is staged and reused
-across renders. Day tooltips and clicks show the date and contribution count.
-Tangled's `tg` CLI has no contribution-calendar endpoint; the Tangled profile
-button opens its native contribution activity instead of inventing an empty graph.
+initially. Both forges open on Repositories. GitHub's full-year contribution
+calendar stays directly below the forge selector, above every queue, with
+today/current/best-streak metrics. Graph construction is staged and reused across
+renders. Day tooltips and clicks show the date and contribution count; missing
+and future slots remain transparent rather than inheriting a black box fill.
+Tangled's `tg` CLI has no contribution-calendar endpoint; the contribution button
+in the same header position opens native profile activity instead.
+
+The separate Tangled and GitHub buttons immediately left of Reload open the
+corresponding profiles without switching forge or loading queues. An unvisited
+forge resolves only its account when its profile button is clicked. The panel is
+580 pixels wide and 800 pixels tall.
 GitHub's All work scope shows open PRs/issues involving your account across repos.
 
 GitHub Inbox includes read **and** unread notifications, without marking them
@@ -44,12 +51,14 @@ GitHub work links open individual items.
 Each forge retains its own verified account and independent in-memory caches for
 repositories, contributions, inbox history, and repository-scoped PR/issue lists.
 Switching providers or revisiting a fresh view reuses these results immediately;
-it does not refetch other lists. The first visit loads only the selected view.
-Repository changes fetch only the requested work list. Up to eight repository
+it does not refetch other lists. The first visit loads only the selected queue
+plus GitHub's visible contribution header. Repository changes reuse the fresh
+calendar and fetch only the requested work list. Up to eight repository
 scopes are retained per forge. Valid empty results are cached too.
 
-Refresh explicitly reloads the current view, not every resource. The configured
-interval controls freshness; a stale selected view revalidates in the background
+Refresh explicitly reloads the selected queue and GitHub's visible contribution
+header, not every resource. The configured interval controls freshness; stale
+visible resources revalidate in the background
 while its last-good results remain visible. Inactive providers do not poll. A
 failed request neither erases successful results nor advances their freshness.
 Caches are session-local and are not written to disk.

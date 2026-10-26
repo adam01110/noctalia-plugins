@@ -1,6 +1,6 @@
 id = "adam0/forges"
 name = "Forges"
-version = "0.3.1"
+version = "0.3.2"
 plugin_api = 34
 author = "Shangshui0302, Adam0"
 license = "MIT"
@@ -35,7 +35,7 @@ entry = "widget.luau"
 id = "panel"
 entry = "panel.luau"
 width = 580
-height = 600
+height = 800
 placement = "floating"
 position = "auto"
 open_near_click = true

@@ -3,7 +3,7 @@
 local opened = false
 local snapshot = noctalia.state.get("forges.snapshot")
     or { provider = "tangled", status = "loading" }
-local tab = snapshot.view or "repositories"
+local tab = snapshot.view == "overview" and "repositories" or (snapshot.view or "repositories")
 local notificationFilter = "all"
 local inboxPage = 1
 local INBOX_PAGE_SIZE = 20
@@ -169,11 +169,17 @@ end
 local function contributionSection()
     local data = prepareCalendar()
     if not data then
-        return label(
-            (snapshot.loading or {}).contributions and "Loading contribution graph…"
-                or "Contribution graph unavailable.",
-            14
-        )
+        return ui.column({ key = "contribution-calendar", height = 170, justify = "center" }, {
+            label(
+                (snapshot.errors or {}).contributions
+                    or (
+                        (snapshot.loading or {}).contributions
+                            and "Loading contribution graph…"
+                        or "Contribution graph unavailable."
+                    ),
+                14
+            ),
+        })
     end
     local legend = { label("Less", 10) }
     for index, color in ipairs(COLORS) do
@@ -192,7 +198,7 @@ local function contributionSection()
     local detail = selectedDay
             and (selectedDay.date .. " · " .. tostring(selectedDay.count) .. " contributions")
         or (data.firstDate .. " — " .. data.lastDate)
-    return ui.column({ key = "contribution-calendar", gap = 10 }, {
+    local children = {
         ui.label({
             text = tostring(data.total) .. " contributions in the last year",
             fontSize = 16,
@@ -215,17 +221,14 @@ local function contributionSection()
                 .. tostring(data.bestStreak)
                 .. " days"
         ),
-        ui.button({
-            text = "Open GitHub profile",
-            controlSize = "sm",
-            onClick = function()
-                openLink("https://github.com/" .. snapshot.account)
-            end,
-        }),
-    })
+    }
+    if (snapshot.errors or {}).contributions then
+        table.insert(children, label(snapshot.errors.contributions, 11, "error"))
+    end
+    return ui.column({ key = "contribution-calendar", gap = 10 }, children)
 end
 function onFrameTick()
-    if not opened or tab ~= "overview" or calendar.node or not calendar.data then
+    if not opened or snapshot.provider ~= "github" or calendar.node or not calendar.data then
         panel.setNeedsFrameTick(false)
         return
     end
@@ -255,7 +258,11 @@ function onFrameTick()
                     })
                 )
             else
-                table.insert(cells, ui.box({ width = 7, height = 7 }))
+                -- Missing/future calendar slots must not inherit ui.box's default fill.
+                table.insert(
+                    cells,
+                    ui.box({ width = 7, height = 7, fill = "transparent", opacity = 0 })
+                )
             end
         end
         table.insert(
@@ -275,14 +282,34 @@ render = function()
     if not opened then
         return
     end
-    if snapshot.provider ~= "github" and (tab == "notifications" or tab == "overview") then
+    if snapshot.provider ~= "github" and tab == "notifications" then
         tab = "repositories"
     end
-    if tab ~= "overview" then
+    if snapshot.provider ~= "github" then
         panel.setNeedsFrameTick(false)
     end
     local forge = snapshot.provider == "github" and "GitHub" or "Tangled"
     local headerActions = {
+        ui.button({
+            key = "profile-tangled",
+            text = "Tangled",
+            glyph = "git-branch",
+            controlSize = "sm",
+            tooltip = "Open Tangled profile",
+            onClick = function()
+                send({ op = "profile", provider = "tangled" })
+            end,
+        }),
+        ui.button({
+            key = "profile-github",
+            text = "GitHub",
+            glyph = "brand-github",
+            controlSize = "sm",
+            tooltip = "Open GitHub profile",
+            onClick = function()
+                send({ op = "profile", provider = "github" })
+            end,
+        }),
         ui.button({
             glyph = "refresh",
             tooltip = "Refresh",
@@ -319,6 +346,7 @@ render = function()
         table.insert(
             providers,
             ui.button({
+                key = "provider-" .. value,
                 text = value == "tangled" and "Tangled" or "GitHub",
                 flexGrow = 1,
                 variant = snapshot.provider == value and "primary" or "default",
@@ -337,7 +365,6 @@ render = function()
     local definitions =
         { { "repositories", "Repositories" }, { "pulls", "Pull requests" }, { "issues", "Issues" } }
     if snapshot.provider == "github" then
-        table.insert(definitions, 1, { "overview", "Activity" })
         table.insert(definitions, { "notifications", "Inbox" })
     end
     for _, definition in ipairs(definitions) do
@@ -372,9 +399,6 @@ render = function()
     if tab == "notifications" then
         context = "Available GitHub notification history · read-only"
     end
-    if tab == "overview" then
-        context = "Account contributions · past year"
-    end
     local content = {}
     local resourceKey = tab == "overview" and "contributions" or tab
     for _, key in ipairs({ "account", resourceKey }) do
@@ -397,22 +421,8 @@ render = function()
     if inputError ~= "" then
         table.insert(content, label(inputError, 12, "error"))
     end
-    if
-        tab == "repositories"
-        and snapshot.provider == "tangled"
-        and (snapshot.account or "") ~= ""
-    then
-        table.insert(
-            content,
-            ui.button({
-                text = "View Tangled profile and contribution activity",
-                controlSize = "sm",
-                tooltip = "tg does not expose a contribution calendar; open your Tangled profile",
-                onClick = function()
-                    openLink("https://tangled.org/" .. snapshot.account)
-                end,
-            })
-        )
+    if snapshot.action_error then
+        table.insert(content, label(snapshot.action_error, 12, "error"))
     end
     if tab == "repositories" then
         table.insert(
@@ -432,9 +442,6 @@ render = function()
                 ui.button({ text = "Inspect", controlSize = "md", onClick = "onInspectRepository" }),
             })
         )
-    end
-    if tab == "overview" then
-        table.insert(content, contributionSection())
     end
     if tab == "notifications" then
         local filters = {}
@@ -581,25 +588,31 @@ render = function()
             ui.label({ text = "Forges", fontSize = 18, fontWeight = "bold", flexGrow = 1 }),
             ui.row({ gap = 6 }, headerActions),
         }),
-        ui.row({ gap = 6 }, providers),
+        ui.row({ key = "provider-switch", gap = 6 }, providers),
+        snapshot.provider == "github" and contributionSection() or ui.button({
+            key = "tangled-contributions",
+            text = "Tangled contributions",
+            controlSize = "sm",
+            tooltip = "Open contribution activity on your Tangled profile",
+            onClick = function()
+                send({ op = "profile", provider = "tangled" })
+            end,
+        }),
         label(
             (snapshot.account or "") ~= "" and ("@" .. snapshot.account .. " · " .. forge)
                 or (forge .. " · account unavailable")
         ),
         ui.row({ gap = 4 }, tabs),
         ui.row({ gap = 6, align = "center" }, scopeChildren),
-        tab == "overview" and ui.box({ height = 0 })
-            or ui.input({
-                key = "filter-" .. snapshot.provider .. "-" .. tab .. "-" .. tostring(
-                    filterRevision
-                ),
-                placeholder = "Filter " .. (tab == "pulls" and "pull requests" or tab),
-                value = query,
-                onChange = function(value)
-                    query, inboxPage = value, 1
-                    render()
-                end,
-            }),
+        ui.input({
+            key = "filter-" .. snapshot.provider .. "-" .. tab .. "-" .. tostring(filterRevision),
+            placeholder = "Filter " .. (tab == "pulls" and "pull requests" or tab),
+            value = query,
+            onChange = function(value)
+                query, inboxPage = value, 1
+                render()
+            end,
+        }),
         ui.scroll(
             { key = "forges-" .. snapshot.provider .. "-" .. tab, flexGrow = 1, gap = 8 },
             content
@@ -607,15 +620,11 @@ render = function()
         ui.row({ justify = "space_between" }, {
             label(status),
             label(
-                tab == "overview" and "Full year"
-                    or (
-                        tostring(shown)
-                        .. " shown · "
-                        .. (
-                            tab == "notifications"
-                                and ("of " .. tostring(#matching) .. " loaded")
-                            or "first page"
-                        )
+                tostring(shown)
+                    .. " shown · "
+                    .. (
+                        tab == "notifications" and ("of " .. tostring(#matching) .. " loaded")
+                        or "first page"
                     )
             ),
         }),
@@ -629,7 +638,7 @@ noctalia.state.watch("forges.snapshot", function(value)
         query, repositoryDraft, inputError = "", "", ""
     end
     snapshot = value
-    tab = snapshot.view or (snapshot.provider == "github" and "overview" or "repositories")
+    tab = snapshot.view == "overview" and "repositories" or (snapshot.view or "repositories")
     render()
 end)
 function onOpen()

@@ -10,6 +10,7 @@ local provider = defaultProvider()
 local configuredProvider = provider
 local contexts = {}
 local sequence = 0
+local actionError
 local ensureView
 local function interval()
     local minutes = tonumber(noctalia.getConfig("refresh_interval_minutes")) or 15
@@ -29,7 +30,7 @@ local function context(forge)
             accountId = "",
             epoch = 0,
             repository = "",
-            view = forge == "github" and "overview" or "repositories",
+            view = "repositories",
             profile = resource(),
             repositories = resource(),
             contributions = resource(),
@@ -124,6 +125,7 @@ local function publish(ctx)
         versions = versions,
         notification_has_more = ctx.notifications.has_more == true,
         notification_page = ctx.notifications.page or 0,
+        action_error = actionError,
     })
 end
 local function invalidate(ctx)
@@ -161,13 +163,15 @@ local function decodeResult(ctx, result)
     end
     return raw
 end
-local function request(ctx, item, argv, normalize, force, after)
+local function request(ctx, item, argv, normalize, force, after, failed)
     if item.loading then
         return
     end
     if not force and fresh(item) then
         if item.value ~= nil and after then
             after(item.value)
+        elseif item.error and failed then
+            failed(item.error)
         end
         return
     end
@@ -196,6 +200,9 @@ local function request(ctx, item, argv, normalize, force, after)
             end
         else
             item.error = error
+            if failed then
+                failed(error)
+            end
         end
         publish(ctx)
     end
@@ -305,6 +312,12 @@ local function loadView(ctx, force)
     if ctx.account == "" then
         return
     end
+    if ctx.provider == "github" then
+        request(ctx, ctx.contributions, GitHub.contributions(), function(raw)
+            local value = Data.contributions(raw)
+            return value and value.login == ctx.account and value or nil
+        end, force)
+    end
     if ctx.view == "repositories" then
         request(
             ctx,
@@ -319,11 +332,6 @@ local function loadView(ctx, force)
                 end
             end
         )
-    elseif ctx.view == "overview" and ctx.provider == "github" then
-        request(ctx, ctx.contributions, GitHub.contributions(), function(raw)
-            local value = Data.contributions(raw)
-            return value and value.login == ctx.account and value or nil
-        end, force)
     elseif ctx.view == "notifications" and ctx.provider == "github" then
         notificationPage(ctx, 1, force)
     elseif ctx.view == "pulls" or ctx.view == "issues" then
@@ -350,12 +358,28 @@ local function loadView(ctx, force)
     end
     publish(ctx)
 end
-ensureView = function(ctx, force)
+local function ensureAccount(ctx, force, success, failed)
+    ctx.accountWaiters = ctx.accountWaiters or {}
+    table.insert(ctx.accountWaiters, { success = success, failed = failed })
+    local function notify(error)
+        local waiters = ctx.accountWaiters
+        ctx.accountWaiters = {}
+        for _, waiter in ipairs(waiters) do
+            if error then
+                if waiter.failed then
+                    waiter.failed(error)
+                end
+            elseif waiter.success then
+                waiter.success()
+            end
+        end
+    end
     local cli = ctx.provider == "github" and "gh" or "tg"
     if not noctalia.commandExists(cli) then
         ctx.missingCli = true
         ctx.profile.error = "Missing " .. cli .. ". Install it to use this forge."
         publish(ctx)
+        notify(ctx.profile.error)
         return
     end
     ctx.missingCli = false
@@ -377,9 +401,15 @@ ensureView = function(ctx, force)
                 }
             end
             ctx.account, ctx.accountId, ctx.authError = profile.login, profile.id, false
-            loadView(ctx, force)
-        end
+            notify()
+        end,
+        notify
     )
+end
+ensureView = function(ctx, force)
+    ensureAccount(ctx, force, function()
+        loadView(ctx, force)
+    end)
 end
 local function validRepository(value)
     if type(value) ~= "string" or #value > 200 then
@@ -392,7 +422,28 @@ local function command(value)
     if type(value) ~= "table" then
         return
     end
-    if value.op == "provider" and (value.provider == "tangled" or value.provider == "github") then
+    actionError = nil
+    if value.op == "profile" and (value.provider == "tangled" or value.provider == "github") then
+        local ctx = context(value.provider)
+        local function failed(message)
+            actionError = message
+            publish(context(provider))
+        end
+        ensureAccount(ctx, false, function()
+            if not noctalia.commandExists("xdg-open") then
+                failed("Missing xdg-open. Install it to open profiles.")
+                return
+            end
+            local host = ctx.provider == "github" and "https://github.com/"
+                or "https://tangled.org/"
+            if not noctalia.runAsync({ "xdg-open", host .. ctx.account }) then
+                failed("Could not open forge profile.")
+            end
+        end, failed)
+        publish(context(provider))
+    elseif
+        value.op == "provider" and (value.provider == "tangled" or value.provider == "github")
+    then
         provider = value.provider
         local ctx = context(provider)
         publish(ctx)
