@@ -103,6 +103,7 @@ local function renderConnectionsTab()
         rows,
         ui.row({ gap = 8, align = "center" }, {
             ui.button({
+                fontSize = 12,
                 text = "Random",
                 glyph = "arrows-shuffle",
                 variant = "ghost",
@@ -114,6 +115,7 @@ local function renderConnectionsTab()
                 end,
             }),
             ui.button({
+                fontSize = 12,
                 text = "P2P",
                 glyph = "download",
                 variant = "ghost",
@@ -125,6 +127,7 @@ local function renderConnectionsTab()
                 end,
             }),
             ui.button({
+                fontSize = 12,
                 text = "Tor",
                 glyph = "eye-off",
                 variant = "ghost",
@@ -147,10 +150,11 @@ local function renderConnectionsTab()
                 value = filterText,
                 placeholder = "Search countries",
                 flexGrow = 1,
-                controlSize = "md",
+                controlSize = "sm",
                 onChange = "onSearchChange",
             }),
             ui.button({
+                fontSize = 12,
                 glyph = "x",
                 variant = "ghost",
                 controlSize = "sm",
@@ -184,16 +188,19 @@ local function renderConnectionsTab()
                 ui.row({
                     key = `country-{code}`,
                     align = "center",
-                    gap = 12,
-                    paddingV = 8,
+                    gap = 8,
+                    paddingV = 5,
                     paddingH = 8,
-                    fill = isCurrentCountry and "primary/0.12" or "transparent",
+                    radius = 8 * scale,
+                    border = borderColor,
+                    borderWidth = borderWidth,
+                    fill = isCurrentCountry and "primary/0.12" or "surface_variant/0.3",
                 }, {
                     ui.label({
                         text = code,
                         visible = name ~= code,
                         width = 28,
-                        fontSize = 12,
+                        fontSize = 11,
                         fontWeight = "bold",
                         color = isCurrentCountry and "primary" or "on_surface_variant",
                     }),
@@ -201,17 +208,18 @@ local function renderConnectionsTab()
                         ui.label({
                             text = name,
                             maxLines = 1,
-                            fontSize = 14,
+                            fontSize = 13,
                             fontWeight = isCurrentCountry and "bold" or "normal",
                             color = isCurrentCountry and "primary" or "on_surface",
                         }),
                         ui.label({
                             text = `{c.count or 0} servers  ·  {c.load or 50}% load`,
-                            fontSize = 12,
+                            fontSize = 11,
                             color = "on_surface_variant",
                         }),
                     }),
                     ui.button({
+                        fontSize = 12,
                         tooltip = isCurrentCountry and noctalia.tr("status.connected")
                             or `{noctalia.tr("actions.connect")}: {name}`,
                         variant = "ghost",
@@ -236,7 +244,7 @@ local function renderConnectionsTab()
                     text = #countryList == 0 and "Country list unavailable"
                         or "No matching countries",
                     color = "on_surface_variant",
-                    fontSize = 12,
+                    fontSize = 11,
                 }),
             })
         )
@@ -246,13 +254,13 @@ local function renderConnectionsTab()
             ui.scroll({
                 key = "countries-scroll",
                 flexGrow = 1,
-                gap = 2,
+                gap = 6,
                 align = "stretch",
             }, listItems)
         )
     end
 
-    return ui.column({ gap = 10, flexGrow = 1, align = "stretch" }, rows)
+    return ui.column({ gap = 8, flexGrow = 1, align = "stretch" }, rows)
 end
 
 -- ── Tab: Protection ───────────────────────────────────────────────────────
@@ -265,15 +273,16 @@ local function renderProtectionTab()
     table.insert(
         rows,
         ui.column({
-            padding = 10,
-            radius = 10 * scale,
+            key = "protection-killswitch",
+            padding = 8,
+            radius = 8 * scale,
             border = borderColor,
             borderWidth = borderWidth,
             fill = "surface_variant/0.45",
             gap = 6,
             align = "stretch",
         }, {
-            ui.row({ align = "center" }, {
+            ui.row({ align = "center", gap = 8 }, {
                 ui.glyph({
                     name = "shield-lock",
                     size = 18,
@@ -283,12 +292,12 @@ local function renderProtectionTab()
                     ui.label({
                         text = noctalia.tr("protection.killswitch"),
                         fontWeight = "bold",
-                        fontSize = 14,
+                        fontSize = 13,
                     }),
                     ui.label({
                         text = noctalia.tr("protection.killswitch_desc"),
                         maxLines = 3,
-                        fontSize = 12,
+                        fontSize = 11,
                         color = "on_surface_variant",
                     }),
                 }),
@@ -309,15 +318,16 @@ local function renderProtectionTab()
     table.insert(
         rows,
         ui.column({
-            padding = 10,
-            radius = 10 * scale,
+            key = "protection-netshield",
+            padding = 8,
+            radius = 8 * scale,
             border = borderColor,
             borderWidth = borderWidth,
             fill = "surface_variant/0.45",
             gap = 8,
             align = "stretch",
         }, {
-            ui.row({ align = "center" }, {
+            ui.row({ align = "center", gap = 8 }, {
                 ui.glyph({
                     name = "shield-check",
                     size = 18,
@@ -327,44 +337,34 @@ local function renderProtectionTab()
                     ui.label({
                         text = noctalia.tr("protection.netshield"),
                         fontWeight = "bold",
-                        fontSize = 14,
+                        fontSize = 13,
                     }),
                     ui.label({
                         text = noctalia.tr("protection.netshield_desc"),
                         maxLines = 3,
-                        fontSize = 12,
+                        fontSize = 11,
                         color = "on_surface_variant",
                     }),
                 }),
             }),
-            ui.column({ gap = 6, align = "stretch" }, {
-                ui.button({
-                    text = noctalia.tr("protection.netshield_off"),
-                    variant = (nsVal == "off") and "primary" or "default",
-                    controlSize = "sm",
-                    enabled = not snapshot.busy,
-                    onClick = function()
-                        sendCmd("set_netshield", { value = "off" })
-                    end,
-                }),
-                ui.button({
-                    text = noctalia.tr("protection.netshield_malware"),
-                    variant = (nsVal == "malware-only") and "primary" or "default",
-                    controlSize = "sm",
-                    enabled = not snapshot.busy,
-                    onClick = function()
-                        sendCmd("set_netshield", { value = "malware-only" })
-                    end,
-                }),
-                ui.button({
-                    text = noctalia.tr("protection.netshield_all"),
-                    variant = (nsVal == "malware-ads-trackers") and "primary" or "default",
-                    controlSize = "sm",
-                    enabled = not snapshot.busy,
-                    onClick = function()
-                        sendCmd("set_netshield", { value = "malware-ads-trackers" })
-                    end,
-                }),
+            ui.select({
+                key = "netshield-mode",
+                options = {
+                    noctalia.tr("protection.netshield_off"),
+                    noctalia.tr("protection.netshield_malware"),
+                    noctalia.tr("protection.netshield_all"),
+                },
+                selectedIndex = nsVal == "malware-ads-trackers" and 2
+                    or (nsVal == "malware-only" and 1 or 0),
+                controlSize = "sm",
+                enabled = not snapshot.busy,
+                onChange = function(value)
+                    local index = tonumber(value)
+                    local modes = { "off", "malware-only", "malware-ads-trackers" }
+                    if index and modes[index + 1] then
+                        sendCmd("set_netshield", { value = modes[index + 1] })
+                    end
+                end,
             }),
         })
     )
@@ -372,7 +372,7 @@ local function renderProtectionTab()
     -- 3. Port Forwarding
     local pfOn = (snapshot.config.portForwarding == "on")
     local portChildren = {
-        ui.row({ align = "center" }, {
+        ui.row({ align = "center", gap = 8 }, {
             ui.glyph({
                 name = "network",
                 size = 18,
@@ -382,12 +382,12 @@ local function renderProtectionTab()
                 ui.label({
                     text = noctalia.tr("protection.port_forwarding"),
                     fontWeight = "bold",
-                    fontSize = 14,
+                    fontSize = 13,
                 }),
                 ui.label({
                     text = noctalia.tr("protection.port_forwarding_desc"),
                     maxLines = 3,
-                    fontSize = 12,
+                    fontSize = 11,
                     color = "on_surface_variant",
                 }),
             }),
@@ -418,13 +418,14 @@ local function renderProtectionTab()
                     text = `Forwarded Inbound Port: {snapshot.forwardedPort}`,
                     fontWeight = "bold",
                     color = "primary",
-                    fontSize = 12,
+                    fontSize = 11,
                     flexGrow = 1,
                 }),
                 ui.button({
+                    fontSize = 12,
                     text = noctalia.tr("actions.copy_port"),
                     glyph = "copy",
-                    controlSize = "xs",
+                    controlSize = "sm",
                     onClick = function()
                         noctalia.copyToClipboard(tostring(snapshot.forwardedPort), "text/plain")
                         noctalia.notify(
@@ -440,8 +441,9 @@ local function renderProtectionTab()
     table.insert(
         rows,
         ui.column({
-            padding = 10,
-            radius = 10 * scale,
+            key = "protection-port-forwarding",
+            padding = 8,
+            radius = 8 * scale,
             border = borderColor,
             borderWidth = borderWidth,
             fill = "surface_variant/0.45",
@@ -454,7 +456,7 @@ local function renderProtectionTab()
     local stAvailable = (snapshot.splitTunneling and snapshot.splitTunneling.available == true)
     local stOn = (snapshot.splitTunneling and snapshot.splitTunneling.enabled == true)
     local splitChildren = {
-        ui.row({ align = "center" }, {
+        ui.row({ align = "center", gap = 8 }, {
             ui.glyph({
                 name = "route",
                 size = 18,
@@ -464,12 +466,12 @@ local function renderProtectionTab()
                 ui.label({
                     text = noctalia.tr("protection.split_tunneling"),
                     fontWeight = "bold",
-                    fontSize = 14,
+                    fontSize = 13,
                 }),
                 ui.label({
                     text = noctalia.tr("protection.split_tunneling_desc"),
                     maxLines = 3,
-                    fontSize = 12,
+                    fontSize = 11,
                     color = "on_surface_variant",
                 }),
             }),
@@ -488,7 +490,7 @@ local function renderProtectionTab()
             splitChildren,
             ui.label({
                 text = noctalia.tr("protection.split_tunneling_warning"),
-                fontSize = 12,
+                fontSize = 11,
                 color = "on_surface_variant",
             })
         )
@@ -499,7 +501,7 @@ local function renderProtectionTab()
             splitChildren,
             ui.label({
                 text = "Connect once with Proton VPN to initialize configuration.",
-                fontSize = 12,
+                fontSize = 11,
                 color = "on_surface_variant",
             })
         )
@@ -521,11 +523,12 @@ local function renderProtectionTab()
                     fill = "surface_variant/0.3",
                 }, {
                     ui.glyph({ name = "app-window", size = 14, color = "on_surface_variant" }),
-                    ui.label({ text = appName, fontSize = 12, flexGrow = 1, maxLines = 1 }),
+                    ui.label({ text = appName, fontSize = 11, flexGrow = 1, maxLines = 1 }),
                     ui.button({
+                        fontSize = 12,
                         glyph = "trash",
                         variant = "ghost",
-                        controlSize = "xs",
+                        controlSize = "sm",
                         onClick = function()
                             sendCmd("remove_split_app", { path = path })
                         end,
@@ -541,7 +544,7 @@ local function renderProtectionTab()
                 splitChildren,
                 ui.label({
                     text = "No apps excluded yet.",
-                    fontSize = 12,
+                    fontSize = 11,
                     color = "on_surface_variant",
                 })
             )
@@ -574,6 +577,7 @@ local function renderProtectionTab()
                         end,
                     }),
                     ui.button({
+                        fontSize = 12,
                         text = "Add",
                         glyph = "plus",
                         controlSize = "sm",
@@ -593,8 +597,9 @@ local function renderProtectionTab()
     table.insert(
         rows,
         ui.column({
-            padding = 10,
-            radius = 10 * scale,
+            key = "protection-split-tunneling",
+            padding = 8,
+            radius = 8 * scale,
             border = borderColor,
             borderWidth = borderWidth,
             fill = "surface_variant/0.45",
@@ -606,7 +611,7 @@ local function renderProtectionTab()
     return ui.scroll({
         key = "protection-scroll",
         flexGrow = 1,
-        gap = 10,
+        gap = 8,
         align = "stretch",
     }, rows)
 end
@@ -642,13 +647,13 @@ local function renderAccountTab()
                         text = signedIn and (username ~= "" and username or "Proton User")
                             or noctalia.tr("account.not_signed_in"),
                         fontWeight = "bold",
-                        fontSize = 15,
+                        fontSize = 14,
                     }),
                     ui.label({
                         text = signedIn
                                 and (plan ~= "" and `{noctalia.tr("account.plan")}: {plan}` or "Account active")
                             or noctalia.tr("account.signin_hint"),
-                        fontSize = 12,
+                        fontSize = 11,
                         color = "on_surface_variant",
                     }),
                 }),
@@ -670,7 +675,7 @@ local function renderAccountTab()
             }, {
                 ui.label({
                     text = "Sign in to Proton VPN",
-                    fontSize = 12,
+                    fontSize = 11,
                     fontWeight = "bold",
                     color = "on_surface",
                 }),
@@ -684,6 +689,8 @@ local function renderAccountTab()
                     end,
                 }),
                 ui.button({
+                    fontSize = 12,
+                    controlSize = "sm",
                     text = noctalia.tr("actions.signin"),
                     glyph = "login",
                     variant = "primary",
@@ -694,7 +701,7 @@ local function renderAccountTab()
                 ui.label({
                     text = "Password and 2FA are entered in a terminal.",
                     maxLines = 2,
-                    fontSize = 12,
+                    fontSize = 11,
                     color = "on_surface_variant",
                 }),
             })
@@ -704,6 +711,8 @@ local function renderAccountTab()
             rows,
             ui.row({ gap = 8, align = "center" }, {
                 ui.button({
+                    fontSize = 12,
+                    controlSize = "sm",
                     text = noctalia.tr("actions.signout"),
                     glyph = "logout",
                     flexGrow = 1,
@@ -712,6 +721,8 @@ local function renderAccountTab()
                     end,
                 }),
                 ui.button({
+                    fontSize = 12,
+                    controlSize = "sm",
                     text = "Refresh Status",
                     glyph = "refresh",
                     onClick = function()
@@ -726,26 +737,26 @@ local function renderAccountTab()
     table.insert(
         rows,
         ui.column({ gap = 6, padding = 10, align = "stretch" }, {
-            ui.label({ text = "Information", fontWeight = "bold", fontSize = 12 }),
+            ui.label({ text = "Information", fontWeight = "bold", fontSize = 11 }),
             ui.row({ gap = 6 }, {
                 ui.label({
                     text = "Protocol:",
-                    fontSize = 12,
+                    fontSize = 11,
                     color = "on_surface_variant",
                     width = 100,
                 }),
-                ui.label({ text = snapshot.protocol or "WireGuard", fontSize = 12, flexGrow = 1 }),
+                ui.label({ text = snapshot.protocol or "WireGuard", fontSize = 11, flexGrow = 1 }),
             }),
             ui.row({ gap = 6 }, {
                 ui.label({
                     text = "Interface:",
-                    fontSize = 12,
+                    fontSize = 11,
                     color = "on_surface_variant",
                     width = 100,
                 }),
                 ui.label({
                     text = snapshot.device ~= "" and snapshot.device or "proton0",
-                    fontSize = 12,
+                    fontSize = 11,
                     flexGrow = 1,
                 }),
             }),
@@ -784,7 +795,7 @@ render = function()
                             )
                         ),
                     fontWeight = "bold",
-                    fontSize = 15,
+                    fontSize = 14,
                 }),
                 ui.label({
                     text = connected
@@ -796,7 +807,7 @@ render = function()
                                 or "Open Account to sign in"
                             )
                         ),
-                    fontSize = 12,
+                    fontSize = 11,
                     color = "on_surface_variant",
                     maxLines = 1,
                 }),
@@ -807,6 +818,7 @@ render = function()
     table.insert(
         connCardChildren,
         ui.button({
+            fontSize = 12,
             text = connected and noctalia.tr("actions.disconnect")
                 or (
                     snapshot.signedIn and noctalia.tr("actions.quick_connect")
@@ -814,7 +826,7 @@ render = function()
                 ),
             variant = connected and "default" or "primary",
             glyph = connected and "player-stop" or (snapshot.signedIn and "player-play" or "login"),
-            controlSize = "md",
+            controlSize = "sm",
             enabled = not snapshot.busy and not connecting,
             onClick = function()
                 if connected then
@@ -840,35 +852,37 @@ render = function()
             connCardChildren,
             ui.row({ gap = 12, align = "center" }, {
                 ui.column({ flexGrow = 1, gap = 2 }, {
-                    ui.label({ text = `↓ {rx}`, fontSize = 12, fontWeight = "bold" }),
+                    ui.label({ text = `↓ {rx}`, fontSize = 11, fontWeight = "bold" }),
                     ui.label({
                         text = `{totRx} received`,
-                        fontSize = 12,
+                        fontSize = 11,
                         color = "on_surface_variant",
                     }),
                 }),
                 ui.column({ flexGrow = 1, gap = 2 }, {
-                    ui.label({ text = `↑ {tx}`, fontSize = 12, fontWeight = "bold" }),
-                    ui.label({ text = `{totTx} sent`, fontSize = 12, color = "on_surface_variant" }),
+                    ui.label({ text = `↑ {tx}`, fontSize = 11, fontWeight = "bold" }),
+                    ui.label({ text = `{totTx} sent`, fontSize = 11, color = "on_surface_variant" }),
                 }),
             })
         )
     end
 
     local topCard = ui.column({
-        padding = 12,
+        padding = 8,
         radius = 12 * scale,
         border = borderColor,
         borderWidth = borderWidth,
         fill = connected and "primary/0.12" or "surface_variant/0.4",
-        gap = 12,
+        gap = 8,
         align = "stretch",
     }, connCardChildren)
 
     -- Tab Navigation
     local tabNav = ui.row({ gap = 4, align = "center" }, {
         ui.button({
+            fontSize = 12,
             text = noctalia.tr("tabs.connections"),
+            controlSize = "sm",
             variant = (activeTab == "connections") and "primary" or "ghost",
             flexGrow = 1,
             onClick = function()
@@ -877,7 +891,9 @@ render = function()
             end,
         }),
         ui.button({
+            fontSize = 12,
             text = noctalia.tr("tabs.protection"),
+            controlSize = "sm",
             variant = (activeTab == "protection") and "primary" or "ghost",
             flexGrow = 1,
             onClick = function()
@@ -886,7 +902,9 @@ render = function()
             end,
         }),
         ui.button({
+            fontSize = 12,
             text = noctalia.tr("tabs.account"),
+            controlSize = "sm",
             variant = (activeTab == "account") and "primary" or "ghost",
             flexGrow = 1,
             onClick = function()
@@ -909,8 +927,8 @@ render = function()
     -- Main Panel Layout
     panel.render(ui.column({
         flexGrow = 1,
-        padding = 12,
-        gap = 12,
+        padding = 8,
+        gap = 8,
         align = "stretch",
     }, {
         -- Header
@@ -918,11 +936,12 @@ render = function()
             ui.glyph({ name = "shield-lock-filled", size = 20, color = "primary" }),
             ui.label({
                 text = noctalia.tr("title"),
-                fontSize = 16,
+                fontSize = 15,
                 fontWeight = "bold",
                 flexGrow = 1,
             }),
             ui.button({
+                fontSize = 12,
                 glyph = "refresh",
                 controlSize = "sm",
                 onClick = function()
@@ -930,6 +949,7 @@ render = function()
                 end,
             }),
             ui.button({
+                fontSize = 12,
                 glyph = "x",
                 controlSize = "sm",
                 onClick = function()

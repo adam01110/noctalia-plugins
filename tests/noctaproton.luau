@@ -103,6 +103,8 @@ end
 
 local function checkButtons(node)
     if node.kind == "button" then
+        assert(node.props.fontSize == 12, "Buttons must use compact text")
+        assert(node.props.controlSize == "sm", "Buttons must use the native small height")
         assert(node.props.variant ~= "outline", "Idle buttons must use the native surface variant")
     end
     for _, child in ipairs(node.children) do
@@ -183,7 +185,10 @@ end
 
 local function checkReadable(node)
     if node.kind == "label" and node.props.fontSize then
-        assert(node.props.fontSize >= 12, "Panel text must not fall below 12px")
+        assert(
+            node.props.fontSize >= 11 and node.props.fontSize <= 15,
+            "Keep panel text compact: 11–15px"
+        )
     end
     for _, child in ipairs(node.children) do
         checkReadable(child)
@@ -194,22 +199,48 @@ settings = {}
 for _, tab in ipairs({ "connections", "protection", "account" }) do
     button(lastPanel, "tabs." .. tab).onClick()
     checkReadable(lastPanel)
-    assert(lastPanel.props.padding == 12, "Content needs an outer gutter")
+    assert(lastPanel.props.padding == 8 and lastPanel.props.gap == 8, "Use compact outer spacing")
     assert(button(lastPanel, "tabs." .. tab).glyph == nil, "Text tabs must reserve room for labels")
 end
 assert(nodeByKey(lastPanel, "account-scroll"), "Account content must scroll")
 button(lastPanel, "tabs.protection").onClick()
+for _, key in ipairs({ "killswitch", "netshield", "port-forwarding", "split-tunneling" }) do
+    local card = nodeByKey(lastPanel, "protection-" .. key)
+    assert(
+        card and card.props.radius == 8 and card.props.borderWidth == 1,
+        "Each protection entry needs its own themed card"
+    )
+    assert(card.props.padding == 8, "Protection cards need compact padding")
+end
+local mode = nodeByKey(lastPanel, "netshield-mode")
 assert(
-    button(lastPanel, "protection.netshield_all").flexGrow == nil,
-    "Long NetShield labels must stack rather than compete for row width"
+    mode and mode.kind == "select" and mode.props.controlSize == "sm",
+    "NetShield modes should occupy one compact control"
 )
+for index, value in ipairs({ "off", "malware-only", "malware-ads-trackers" }) do
+    mode.props.onChange(tostring(index - 1))
+    assert(command.op == "set_netshield" and command.value == value)
+    snapshot.config.netshield = value
+    watcher(snapshot)
+    assert(nodeByKey(lastPanel, "netshield-mode").props.selectedIndex == index - 1)
+end
+local before = command
+mode.props.onChange("invalid")
+mode.props.onChange(4)
+assert(command == before, "Invalid NetShield selection must not send commands")
+snapshot.busy = true
+watcher(snapshot)
+assert(not nodeByKey(lastPanel, "netshield-mode").props.enabled)
+snapshot.busy = false
+snapshot.config.netshield = "off"
+watcher(snapshot)
 button(lastPanel, "tabs.connections").onClick()
 assert(button(lastPanel, "actions.fastest") == nil, "Do not repeat the primary fastest action")
-assert(nodeByKey(lastPanel, "country-search").props.controlSize == "md")
+assert(nodeByKey(lastPanel, "country-search").props.controlSize == "sm")
 local country = nodeByKey(lastPanel, "country-NL")
 assert(
-    country.props.borderWidth == nil and country.props.radius == nil,
-    "Country list must not nest outlined cards"
+    country.props.borderWidth == 1 and country.props.radius == 8,
+    "Each country needs a themed entry card"
 )
 local connect = button(country, "player-play")
 assert(connect.text == nil and connect.tooltip:find("Netherlands", 1, true))
