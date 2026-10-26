@@ -1,0 +1,11 @@
+{
+	"settings": {
+		"provider": "Default forge",
+		"refresh": "Refresh interval (minutes)",
+		"placement": "Panel placement",
+		"floating": "Floating",
+		"attached": "Attached to bar",
+		"tangled": "Tangled",
+		"github": "GitHub"
+	}
+}

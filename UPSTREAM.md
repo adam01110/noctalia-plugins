@@ -25,6 +25,15 @@ scaling.
 
 ## Fork changes
 
+- **Forges:** adapted Shangshui0302's GitHub Kanban 0.2.6 from
+  [`63150dc53560297140164083b4d14d4aaaf59bc8`](https://github.com/noctalia-dev/community-plugins/tree/63150dc53560297140164083b4d14d4aaaf59bc8/github-kanban)
+  as `adam0/forges`, targeting API 34 rather than upstream API 43. Tangled via
+  `tg` is the startup default, with a session provider switch and shared
+  repository/PR/issue lists; GitHub also has a read-only inbox. Custom radii and
+  outlines follow shell settings, and the panel defaults to floating near-click
+  placement. See [Forges setup and scope](forges/SETUP.md) for retained features
+  and intentional differences. Upstream declares MIT but supplies no separate
+  license file in this snapshot.
 - **Keybind Cheatsheet:** synchronized the upstream 0.3.2 parser and panel,
   including staged parsing and progressive rendering to stay within callback
   CPU budgets, Fcitx5 hotkeys, sequential-binding grouping, modifier labels,

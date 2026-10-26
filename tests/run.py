@@ -11,7 +11,7 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[1]
 
 # Noctalia draws shell.panel borders only for floating panel surfaces.
-for plugin in ("albedo-monitor", "noctaproton-vpn"):
+for plugin in ("albedo-monitor", "noctaproton-vpn", "forges"):
     manifest = tomllib.loads((ROOT / plugin / "plugin.toml").read_text())
     panel = manifest["panel"][0]
     assert panel["placement"] == "floating", f"{plugin}: popup must use native floating borders"
@@ -93,6 +93,29 @@ with tempfile.TemporaryDirectory(prefix="noctalia-plugin-tests-") as directory:
     vpn_test.write_text(source)
     result = subprocess.run(
         [sys.argv[1] if len(sys.argv) > 1 else "luau", str(vpn_test)], check=False
+    )
+    if result.returncode:
+        sys.exit(result.returncode)
+    forges_test = Path(directory) / "forges.luau"
+    source = (ROOT / "tests/forges.luau").read_text()
+    for marker, filename in (
+        ("GITHUB_SOURCE", "lib/github.luau"),
+        ("DATA_SOURCE", "lib/data.luau"),
+        ("TANGLED_SOURCE", "lib/tangled.luau"),
+        ("SERVICE_SOURCE", "service.luau"),
+        ("PANEL_SOURCE", "panel.luau"),
+        ("WIDGET_SOURCE", "widget.luau"),
+    ):
+        content = (ROOT / "forges" / filename).read_text()
+        if filename == "service.luau":
+            for module in ("GitHub", "Data", "Tangled"):
+                content = content.replace(
+                    'require("./lib/' + module.lower() + '.luau")', module
+                )
+        source = source.replace("-- " + marker, content)
+    forges_test.write_text(source)
+    result = subprocess.run(
+        [sys.argv[1] if len(sys.argv) > 1 else "luau", str(forges_test)], check=False
     )
     if result.returncode:
         sys.exit(result.returncode)

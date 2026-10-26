@@ -1,0 +1,45 @@
+id = "adam0/forges"
+name = "Forges"
+version = "0.3.0"
+plugin_api = 34
+author = "Shangshui0302, Adam0"
+license = "MIT"
+icon = "git-branch"
+description = "Tangled and GitHub repositories, pull requests, issues, and GitHub notifications."
+tags = ["bar", "panel", "service", "development", "productivity"]
+dependencies = ["tg", "gh", "xdg-open"]
+
+[[setting]]
+key = "provider"
+type = "select"
+label_key = "settings.provider"
+default = "tangled"
+options = [
+  { value = "tangled", label_key = "settings.tangled" },
+  { value = "github", label_key = "settings.github" },
+]
+
+[[setting]]
+key = "refresh_interval_minutes"
+type = "int"
+label_key = "settings.refresh"
+default = 15
+min = 5
+max = 60
+
+[[widget]]
+id = "forges"
+entry = "widget.luau"
+
+[[panel]]
+id = "panel"
+entry = "panel.luau"
+width = 580
+height = 600
+placement = "floating"
+position = "auto"
+open_near_click = true
+
+[[service]]
+id = "sync"
+entry = "service.luau"

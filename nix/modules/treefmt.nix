@@ -36,10 +36,27 @@
         ];
       };
 
+      settings.formatter.forges-luau = {
+        command = "${pkgs.stylua}/bin/stylua";
+        options = ["--config-path" "${../../forges/.stylua.toml}"];
+        includes = [
+          # keep-sorted start
+          "forges/*.luau"
+          "forges/lib/*.luau"
+          "tests/forges.luau"
+          # keep-sorted end
+        ];
+      };
+
       settings.formatter.noctaproton-luau = {
         command = "${pkgs.stylua}/bin/stylua";
         options = ["--config-path" "${../../noctaproton-vpn/.stylua.toml}"];
-        includes = ["noctaproton-vpn/*.luau" "tests/noctaproton.luau"];
+        includes = [
+          # keep-sorted start
+          "noctaproton-vpn/*.luau"
+          "tests/noctaproton.luau"
+          # keep-sorted end
+        ];
       };
 
       projectRootFile = "flake.nix";
