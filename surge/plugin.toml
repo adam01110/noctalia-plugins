@@ -1,0 +1,51 @@
+id = "adam0/surge"
+name = "Surge"
+version = "0.1.0"
+plugin_api = 34
+author = "adam0"
+license = "MIT"
+icon = "download"
+description = "Active Surge downloads; hidden when idle."
+tags = ["bar", "panel", "service", "utility"]
+dependencies = ["surge", "timeout"]
+
+[[setting]]
+key = "surgePath"
+type = "string"
+label_key = "settings.path.label"
+description_key = "settings.path.description"
+default = "surge"
+
+[[setting]]
+key = "host"
+type = "string"
+label_key = "settings.host.label"
+description_key = "settings.host.description"
+default = "127.0.0.1:1700"
+
+[[setting]]
+key = "refreshIntervalSec"
+type = "int"
+label_key = "settings.interval.label"
+description_key = "settings.interval.description"
+default = 2
+min = 1
+max = 60
+
+[[service]]
+id = "service"
+entry = "service.luau"
+
+[[widget]]
+id = "status"
+entry = "status.luau"
+
+[[panel]]
+id = "panel"
+entry = "panel.luau"
+width = 480
+height = 480
+placement = "attached"
+position = "auto"
+open_near_click = true
+dismiss_on_outside_click = true

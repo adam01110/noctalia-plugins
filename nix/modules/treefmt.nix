@@ -59,6 +59,12 @@
         ];
       };
 
+      settings.formatter.surge-luau = {
+        command = "${pkgs.stylua}/bin/stylua";
+        options = ["--config-path" "${../../surge/.stylua.toml}"];
+        includes = ["surge/*.luau" "tests/surge.luau"];
+      };
+
       projectRootFile = "flake.nix";
     };
   };

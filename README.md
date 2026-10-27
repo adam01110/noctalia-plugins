@@ -16,8 +16,8 @@ by my system configuration.
 
 <!-- rumdl-enable MD033 MD041 -->
 
-This collection contains community Noctalia plugin forks and a custom Albedo
-monitor.
+This collection contains community Noctalia plugin forks and custom Albedo
+and Surge monitors.
 
 ## Plugins
 
@@ -28,6 +28,7 @@ monitor.
 | [Keybind Cheatsheet](./keybind-cheatsheet) | `kenn/keybind-cheatsheet` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/keybind-cheatsheet) |
 | [Nix Monitor](./nix-monitor) | `avivbintangaringga/nix-monitor` | [community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/nix-monitor) |
 | [NoctaProton VPN](./noctaproton-vpn) | `adam0/noctaproton-vpn` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/noctaproton-vpn) |
+| [Surge](./surge) | `adam0/surge` | Custom plugin for [Surge](https://github.com/SurgeDM/Surge) downloads |
 | [Udiskie Manager](./udiskie) | `adam0/udiskie` | [Community plugin](https://github.com/noctalia-dev/community-plugins/tree/main/udiskie) |
 | [World Clock](./world-clock) | `noctalia/world_clock` | [Official plugin](https://github.com/noctalia-dev/official-plugins/tree/main/world_clock) |
 
@@ -60,6 +61,9 @@ noctalia msg plugins source add local path /absolute/path/to/noctalia-plugins
 
 The plugins can then be enabled and configured through Noctalia's plugin settings.
 
+Surge hides its bar widget when no downloads are active. See its
+[setup instructions](./surge/README.md) for the server address and widget ID.
+
 ## Dependencies
 
 Noctalia resolves each plugin's declared command dependencies. The main
@@ -71,6 +75,7 @@ external tools are:
 | Forges | `tg`, `gh`, `xdg-open` |
 | Keybind Cheatsheet | `hyprctl` |
 | Nix Monitor | `nix`, `nix-store`, `nixos-rebuild`, plus standard shell utilities |
+| Surge | `surge` v0.12.2 or later, `timeout` |
 | Udiskie Manager | `udiskie`, `udisks2`, `xdg-open` |
 
 ## Development

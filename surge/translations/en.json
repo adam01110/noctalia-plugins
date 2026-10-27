@@ -1,0 +1,8 @@
+{
+	"settings.path.label": "Surge executable",
+	"settings.path.description": "Executable name or absolute path to Surge (v0.12.2 or later).",
+	"settings.host.label": "Surge server",
+	"settings.host.description": "Live server address, e.g. 127.0.0.1:1700. Must match the server port. Authentication is managed by Surge.",
+	"settings.interval.label": "Refresh interval",
+	"settings.interval.description": "Seconds between download snapshots."
+}
