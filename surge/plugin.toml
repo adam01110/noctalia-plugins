@@ -1,11 +1,11 @@
 id = "adam0/surge"
 name = "Surge"
-version = "0.2.0"
+version = "0.3.0"
 plugin_api = 34
 author = "adam0"
 license = "MIT"
 icon = "download"
-description = "Active Surge downloads; hidden when idle."
+description = "Surge activity and history; download progress hides when idle."
 tags = ["bar", "panel", "service", "utility"]
 dependencies = ["surge", "timeout"]
 

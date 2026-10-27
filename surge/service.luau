@@ -2,6 +2,7 @@
 
 local inFlight = false
 local speedHistory = {}
+local lastHistory = {}
 
 local function number(value)
     if type(value) == "number" and value == value and math.abs(value) ~= math.huge then
@@ -10,11 +11,13 @@ local function number(value)
     return 0
 end
 
-local function publish(downloads, errorMessage)
+local function publish(snapshot, errorMessage)
+    local downloads = snapshot.items or {}
     if errorMessage then
         -- Do not connect a recovered graph across an unknown/offline interval.
         speedHistory = {}
     else
+        lastHistory = snapshot.history or {}
         local speed = 0
         for _, item in ipairs(downloads) do
             speed = speed + item.speed
@@ -26,6 +29,8 @@ local function publish(downloads, errorMessage)
     end
     noctalia.state.set("downloads", {
         items = downloads,
+        active = snapshot.active or {},
+        history = table.clone(lastHistory),
         error = errorMessage or "",
         speedHistory = table.clone(speedHistory),
     })
@@ -35,7 +40,7 @@ local function normalize(raw)
     if type(raw) ~= "table" then
         return nil
     end
-    local items = {}
+    local items, active, history = {}, {}, {}
     local count = 0
     for key, item in pairs(raw) do
         count = count + 1
@@ -54,22 +59,46 @@ local function normalize(raw)
         return nil
     end
     for _, item in ipairs(raw) do
-        -- Paused, queued, failed, and completed entries must not occupy the bar.
-        if item.status == "downloading" then
+        local terminal = item.status == "completed" or item.status == "error"
+        if
+            terminal
+            or item.status == "downloading"
+            or item.status == "paused"
+            or item.status == "queued"
+        then
             local total = number(item.total_size)
             local downloaded = number(item.downloaded)
-            items[#items + 1] = {
+            local entry = {
                 id = item.id,
+                status = item.status,
+                addedAt = number(item.added_at),
                 filename = type(item.filename) == "string" and string.sub(item.filename, 1, 512)
                     or "Download",
                 progress = total > 0 and math.clamp(downloaded / total, 0, 1) or nil,
                 total = total,
                 downloaded = downloaded,
-                speed = number(item.speed),
+                speed = item.status == "downloading" and number(item.speed) or 0,
             }
+            if terminal then
+                history[#history + 1] = entry
+            else
+                active[#active + 1] = entry
+                if item.status == "downloading" then
+                    items[#items + 1] = entry
+                end
+            end
         end
     end
-    return items
+    table.sort(history, function(a, b)
+        if a.addedAt == b.addedAt then
+            return a.id < b.id
+        end
+        return a.addedAt > b.addedAt
+    end)
+    while #history > 100 do
+        table.remove(history)
+    end
+    return { items = items, active = active, history = history }
 end
 
 local function refresh()

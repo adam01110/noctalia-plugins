@@ -1,7 +1,8 @@
 # Surge
 
-A Noctalia widget for active Surge downloads. It disappears when nothing is
-downloading and uses the same compact meter and text sizing as Albedo Monitor.
+A Noctalia widget for Surge activity and download history. The launcher stays
+visible; its count and progress meter disappear when nothing is downloading.
+The compact meter and text sizing match Albedo Monitor.
 
 ## Setup
 
@@ -16,8 +17,9 @@ configuration/environment. The plugin never starts a server or modifies the queu
 
 ## Bar and panel
 
-Only `downloading` entries show the bar. Paused, queued, completed, failed,
-and unreachable-server states hide the entire capsule, including its spacing.
+Only `downloading` entries show the bar's count and progress meter. When idle,
+paused, queued, or disconnected, the Surge icon remains clickable so the panel
+and history stay accessible. Finishing a download does not close the panel.
 Click for a speed-history graph and individual download cards with progress,
 transferred sizes, transfer rates, and estimated time remaining; right-click to
 refresh. The graph uses the latest 60 successful polls, including zero-speed idle
@@ -31,6 +33,14 @@ a misleading percentage. Corner radius follows the shell setting.
 
 An explicit server address prevents stale database records from keeping the
 widget visible after Surge exits. Connection errors also clear the last active
-snapshot. The panel shows a generic error rather than raw CLI diagnostics,
-which may include sensitive addresses. Idle state and connection failures are
-both intentionally hidden in the bar.
+snapshot, but retain the last successful history with an offline warning.
+The panel shows a generic error rather than raw CLI diagnostics, which may
+include sensitive addresses.
+
+The **Active** tab contains downloading, queued, and paused entries. **History**
+contains completed and failed entries returned by Surge, newest-added first
+(up to 100 records; 40 rendered at once). History is owned by Surge's server,
+not a second plugin database: clearing records in Surge removes them here after
+the next successful poll. Cached history survives connection failures but not a
+plugin restart without a successful server poll. Tabs retain their selection
+while the panel is closed.

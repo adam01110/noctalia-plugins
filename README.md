@@ -61,7 +61,8 @@ noctalia msg plugins source add local path /absolute/path/to/noctalia-plugins
 
 The plugins can then be enabled and configured through Noctalia's plugin settings.
 
-Surge hides its bar widget when no downloads are active. See its
+Surge hides only its download count and meter when idle; its launcher stays
+visible. See its
 [setup instructions](./surge/README.md) for the server address and widget ID.
 
 ## Dependencies

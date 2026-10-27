@@ -1,6 +1,14 @@
 --!nonstrict
 
 local opened = false
+local activeTab = "active"
+local STATUS = {
+    downloading = "Downloading",
+    paused = "Paused",
+    queued = "Queued",
+    completed = "Completed",
+    error = "Failed",
+}
 
 local function label(text, size, color)
     return ui.label({
@@ -112,6 +120,11 @@ end
 local function downloadCard(item, index, scale, border)
     local children = {
         label(item.filename, 14),
+        label(
+            STATUS[item.status] or "Download",
+            11,
+            item.status == "error" and "error" or "on_surface_variant"
+        ),
         ui.row({ justify = "space_between", gap = 8 }, {
             label(
                 item.progress ~= nil and string.format("%d%%", math.floor(item.progress * 100))
@@ -119,10 +132,10 @@ local function downloadCard(item, index, scale, border)
                 12,
                 "primary"
             ),
-            label(bytes(item.speed) .. "/s", 12),
+            label(item.status == "downloading" and (bytes(item.speed) .. "/s") or "", 12),
         }),
     }
-    if item.progress ~= nil then
+    if item.progress ~= nil and item.status ~= "completed" and item.status ~= "error" then
         children[#children + 1] = ui.progress({
             progress = item.progress,
             height = 5,
@@ -137,7 +150,7 @@ local function downloadCard(item, index, scale, border)
             11,
             "on_surface_variant"
         ),
-        label(eta(item), 11, "on_surface_variant"),
+        label(item.status == "downloading" and eta(item) or "", 11, "on_surface_variant"),
     })
     return card("download-" .. tostring(index) .. "-" .. item.id, children, scale, border)
 end
@@ -148,6 +161,8 @@ local function render()
     end
     local data = noctalia.state.get("downloads") or { items = {}, error = "" }
     local items = data.items or {}
+    local active, history = data.active or {}, data.history or {}
+    local selected = activeTab == "active" and active or history
     local scale = noctalia.getSetting("shell.corner_radius_scale")
     if type(scale) ~= "number" or scale ~= scale or math.abs(scale) == math.huge then
         scale = 1
@@ -155,25 +170,43 @@ local function render()
     scale = math.max(0, scale)
     local border = panelBorder()
     local rows = {}
-    for index, item in ipairs(items) do
+    for index, item in ipairs(selected) do
         if index > 40 then
-            rows[#rows + 1] =
-                label(tostring(#items - 40) .. " more active downloads", 12, "on_surface_variant")
+            rows[#rows + 1] = label(
+                tostring(#selected - 40)
+                    .. (
+                        activeTab == "active" and " more active downloads"
+                        or " more history entries"
+                    ),
+                12,
+                "on_surface_variant"
+            )
             break
         end
         rows[#rows + 1] = downloadCard(item, index, scale, border)
     end
     if #rows == 0 then
         rows[1] = card("empty", {
-            label(data.error ~= "" and "Server unavailable" or "No active downloads", 14),
+            label(activeTab == "active" and "No active downloads" or "No download history", 14),
             label(
-                data.error ~= "" and data.error or "New downloads appear here automatically.",
+                activeTab == "active" and "Downloading, queued, and paused files appear here."
+                    or "Completed and failed downloads appear here.",
                 12,
                 "on_surface_variant"
             ),
         }, scale, border)
     end
-    local content = { speedCard(data, items, scale, border), label("Downloads", 14) }
+    local content = { speedCard(data, items, scale, border) }
+    if data.error ~= "" then
+        content[#content + 1] = card("connection-error", {
+            label("Server unavailable", 14),
+            label(
+                data.error .. (#history > 0 and " · Showing last known history" or ""),
+                12,
+                "on_surface_variant"
+            ),
+        }, scale, border)
+    end
     for _, row in ipairs(rows) do
         content[#content + 1] = row
     end
@@ -189,7 +222,31 @@ local function render()
                 end,
             }),
         }),
-        ui.scroll({ key = "surge-downloads", flexGrow = 1, gap = 10 }, content),
+        ui.row({ gap = 8 }, {
+            ui.button({
+                key = "tab-active",
+                text = "Active · " .. tostring(#active),
+                selected = activeTab == "active",
+                variant = "ghost",
+                flexGrow = 1,
+                onClick = function()
+                    activeTab = "active"
+                    render()
+                end,
+            }),
+            ui.button({
+                key = "tab-history",
+                text = "History · " .. tostring(#history),
+                selected = activeTab == "history",
+                variant = "ghost",
+                flexGrow = 1,
+                onClick = function()
+                    activeTab = "history"
+                    render()
+                end,
+            }),
+        }),
+        ui.scroll({ key = "surge-" .. activeTab, flexGrow = 1, gap = 10 }, content),
     }))
 end
 

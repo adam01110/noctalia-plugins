@@ -3,8 +3,11 @@
 local function render()
     local data = noctalia.state.get("downloads")
     local items = type(data) == "table" and data.items or {}
-    barWidget.setVisible(#items > 0)
+    barWidget.setVisible(true)
     if #items == 0 then
+        barWidget.render(ui.row({ align = "center", gap = 6 }, {
+            ui.glyph({ name = "download", size = 15, color = "on_surface_variant" }),
+        }))
         barWidget.setTooltip(
             type(data) == "table" and data.error ~= "" and data.error or "No active downloads"
         )

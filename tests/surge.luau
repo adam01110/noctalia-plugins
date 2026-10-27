@@ -161,14 +161,16 @@ local function hasText(tree, text)
     return false
 end
 
-assert(visible == false and interval == 2000)
+assert(visible == true and interval == 2000)
 assert(command[1] == "timeout" and command[2] == "5s")
 assert(command[3] == config.surgePath and command[4] == "ls" and command[5] == "--json")
 assert(command[6] == "--host" and command[7] == config.host)
 serviceUpdate()
 assert(started == 1, "Overlapping polls must be suppressed")
 reply({})
-assert(visible == false)
+assert(visible == true and find(bar, "progress") == nil and find(bar, "label") == nil)
+click()
+assert(selectedPanel == "adam0/surge:panel", "Idle launcher must open the panel")
 request()
 reply({
     item("a", "downloading", 100, 25, 1024),
@@ -221,25 +223,54 @@ reply({
     item("c", "completed", 1, 1, 0),
     item("d", "error", 1, 0, 0),
 })
-assert(visible == false)
+assert(visible == true and find(bar, "progress") == nil and find(bar, "label") == nil)
+assert(#state.downloads.active == 2 and #state.downloads.history == 2)
+assert(hasText(renderedPanel, "Queued") and hasText(renderedPanel, "Paused"))
+assert(not hasText(renderedPanel, "Completed") and not hasText(renderedPanel, "Failed"))
+findKey(renderedPanel, "tab-history").props.onClick()
+assert(findKey(renderedPanel, "tab-history").props.selected == true)
+assert(hasText(renderedPanel, "Completed") and hasText(renderedPanel, "Failed"))
+assert(not hasText(renderedPanel, "Queued") and not hasText(renderedPanel, "Paused"))
+assert(find(renderedPanel, "progress") == nil, "History must not show a live download meter")
+onClose()
+onOpen()
+assert(findKey(renderedPanel, "tab-history").props.selected == true)
+local terminalSnapshot = state.downloads.history
+request()
+reply({}, { exitCode = 1 })
+assert(#state.downloads.history == 2 and #terminalSnapshot == 2)
+assert(hasText(renderedPanel, "Completed") and hasText(renderedPanel, "Server unavailable"))
+assert(hasText(renderedPanel, "Surge server unavailable · Showing last known history"))
+assert(visible == true and find(bar, "label") == nil)
+findKey(renderedPanel, "tab-active").props.onClick()
+assert(hasText(renderedPanel, "No active downloads"))
 for _, failure in ipairs({ { exitCode = 1 }, { timedOut = true }, { stdoutTruncated = true } }) do
     request()
     reply({ item("active", "downloading", 2, 1, 0) })
     assert(visible == true)
     request()
     reply({}, failure)
-    assert(visible == false and #state.downloads.items == 0 and state.downloads.error ~= "")
+    assert(visible == true and find(bar, "progress") == nil and find(bar, "label") == nil)
+    assert(
+        #state.downloads.items == 0 and #state.downloads.active == 0 and state.downloads.error ~= ""
+    )
     assert(#state.downloads.speedHistory == 0 and find(renderedPanel, "graph") == nil)
     assert(hasText(renderedPanel, "Server unavailable"))
 end
 for _, malformed in ipairs({ "invalid", { error = "failed" }, { 9 }, { { id = "a" } } }) do
     request()
     reply(malformed)
-    assert(visible == false and state.downloads.error == "Invalid Surge response")
+    assert(
+        visible == true
+            and find(bar, "label") == nil
+            and state.downloads.error == "Invalid Surge response"
+    )
 end
 accepted = false
 serviceUpdate()
-assert(visible == false and state.downloads.error == "Could not run Surge")
+assert(
+    visible == true and find(bar, "label") == nil and state.downloads.error == "Could not run Surge"
+)
 accepted = true
 config.refreshIntervalSec = 500
 request()
@@ -287,7 +318,37 @@ reply(many)
 assert(hasText(renderedPanel, "2 more active downloads"))
 assert(findKey(renderedPanel, "download-40-40") ~= nil)
 assert(findKey(renderedPanel, "download-41-41") == nil)
+local terminal = {}
+for index = 1, 105 do
+    terminal[index] =
+        item(tostring(index), index % 2 == 0 and "completed" or "error", 100, 100, 999)
+    terminal[index].added_at = index
+end
+request()
+reply(terminal)
+assert(
+    #state.downloads.items == 0 and #state.downloads.active == 0 and #state.downloads.history == 100
+)
+assert(state.downloads.history[1].id == "105" and state.downloads.history[100].id == "6")
+assert(state.downloads.history[1].speed == 0)
+assert(visible == true and find(bar, "progress") == nil and find(bar, "label") == nil)
+assert(hasText(renderedPanel, "No active downloads"), "Completion must leave the panel open")
+findKey(renderedPanel, "tab-history").props.onClick()
+assert(hasText(renderedPanel, "60 more history entries"))
+assert(findKey(renderedPanel, "download-1-105") ~= nil)
+request()
+reply({})
+assert(#state.downloads.history == 0 and hasText(renderedPanel, "No download history"))
+request()
+reply({ item("retry", "downloading", 100, 10, 20) })
+findKey(renderedPanel, "tab-active").props.onClick()
+assert(findKey(renderedPanel, "download-1-retry") ~= nil)
+request()
+reply({ item("retry", "completed", 100, 100, 0) })
+assert(hasText(renderedPanel, "No active downloads"))
+findKey(renderedPanel, "tab-history").props.onClick()
+assert(hasText(renderedPanel, "retry.iso") and hasText(renderedPanel, "Completed"))
 onClose()
 print(
-    "Surge service/bar/panel: bounded history, graph, cards, theme geometry, recovery and idle checks passed"
+    "Surge: Active/History tabs, persistent idle launcher, server history, graph, theme and recovery checks passed"
 )
