@@ -553,6 +553,10 @@ panelEntry()
 onOpen()
 local actions = lastPanel.children[1].children[3].children
 assert(
+    actions[1].props.text == nil and actions[2].props.text == nil,
+    "Profile controls must be icon-only"
+)
+assert(
     actions[1].props.key == "profile-tangled"
         and actions[2].props.key == "profile-github"
         and actions[3].props.tooltip == "Refresh",

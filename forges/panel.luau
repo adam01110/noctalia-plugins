@@ -292,7 +292,6 @@ render = function()
     local headerActions = {
         ui.button({
             key = "profile-tangled",
-            text = "Tangled",
             glyph = "git-branch",
             controlSize = "sm",
             tooltip = "Open Tangled profile",
@@ -302,7 +301,6 @@ render = function()
         }),
         ui.button({
             key = "profile-github",
-            text = "GitHub",
             glyph = "brand-github",
             controlSize = "sm",
             tooltip = "Open GitHub profile",
