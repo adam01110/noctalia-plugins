@@ -213,13 +213,23 @@ local function render()
     panel.render(ui.column({ flexGrow = 1, padding = 16, gap = 12 }, {
         ui.row({ justify = "space_between", align = "center" }, {
             label("Surge", 18),
-            ui.button({
-                glyph = "refresh",
-                controlSize = "sm",
-                tooltip = "Refresh",
-                onClick = function()
-                    noctalia.state.set("command", { action = "refresh" })
-                end,
+            ui.row({ key = "panel-actions", align = "center", gap = 6 }, {
+                ui.button({
+                    glyph = "refresh",
+                    controlSize = "sm",
+                    tooltip = "Refresh",
+                    onClick = function()
+                        noctalia.state.set("command", { action = "refresh" })
+                    end,
+                }),
+                ui.button({
+                    glyph = "x",
+                    controlSize = "sm",
+                    tooltip = "Close",
+                    onClick = function()
+                        panel.close()
+                    end,
+                }),
             }),
         }),
         ui.row({ gap = 8 }, {

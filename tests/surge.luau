@@ -83,7 +83,12 @@ local barWidget = {
         tooltip = value
     end,
 }
+local panelClosed = false
 local panel = {
+    close = function()
+        panelClosed = true
+        onClose()
+    end,
     render = function(value)
         renderedPanel = value
     end,
@@ -188,6 +193,15 @@ click()
 assert(selectedPanel == "adam0/surge:panel")
 onOpen()
 assert(renderedPanel ~= nil and find(renderedPanel, "progress") ~= nil)
+local actions = findKey(renderedPanel, "panel-actions").children
+assert(#actions == 2 and actions[1].props.glyph == "refresh" and actions[2].props.glyph == "x")
+assert(
+    actions[2].props.controlSize == actions[1].props.controlSize
+        and actions[2].props.tooltip == "Close"
+)
+actions[2].props.onClick()
+assert(panelClosed, "Close button must call the native panel close action")
+onOpen()
 local graph = find(renderedPanel, "graph")
 assert(graph ~= nil and graph.props.height == 76)
 assert(#graph.props.values == 2 and graph.props.values[1] == 0 and graph.props.values[2] == 1)
