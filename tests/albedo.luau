@@ -461,7 +461,7 @@ for _, case in ipairs({
 end
 borderSettings = { borders = true, border_width = 1, border_color = "outline" }
 
--- Keep all accounts, but show only the tightest healthy window per account.
+-- Keep all accounts, but show only one healthy window per account.
 local inventory = sample()
 inventory.accounts = {}
 for index = 1, 6 do
@@ -687,10 +687,46 @@ limiting.accounts[1].windows = {
 request()
 reply(limiting)
 assert(#collectNodes(lastBar, "progress") == 1)
-assert(collectNodes(lastBar, "progress")[1].props.progress == 0.13)
-contains(lastBar, "13%")
-assert(not string.find(texts(lastBar), "80%", 1, true))
-tooltipContains("Bar · Weekly: 13%")
+assert(collectNodes(lastBar, "progress")[1].props.progress == 0.8)
+contains(lastBar, "80%")
+assert(not string.find(texts(lastBar), "13%", 1, true))
+tooltipContains("Bar · Session: 80%")
+
+for _, labels in ipairs({ { "5 hours", "7 days" }, { "5h", "7d" }, { "Session", "Weekly" } }) do
+    for _, case in ipairs({
+        { weekly = 13, session = 80, expected = 80 },
+        { weekly = 5, session = 80, expected = 80 },
+        { weekly = 4.99, session = 80, expected = 4.99 },
+        { weekly = 0, session = 80, expected = 0 },
+        { weekly = 4, session = 1, expected = 4 },
+        { weekly = 4, session = 80, weeklyStale = true, expected = 80 },
+        { weekly = 4, session = 80, weeklyStatus = "unavailable", expected = 80 },
+        { weekly = 4, session = 80, weeklyReset = now - 1, expected = 80 },
+        { weekly = 13, session = 80, sessionStale = true, expected = 13 },
+    }) do
+        local priority = sample()
+        priority.accounts[1].windows = {
+            {
+                label = labels[2],
+                remaining_percent = case.weekly,
+                stale = case.weeklyStale or false,
+                status = case.weeklyStatus or "ok",
+                resets_at_epoch = case.weeklyReset,
+            },
+            {
+                label = labels[1],
+                remaining_percent = case.session,
+                stale = case.sessionStale or false,
+            },
+        }
+        request()
+        reply(priority)
+        local progress = collectNodes(lastBar, "progress")
+        assert(#progress == 1 and progress[1].props.progress == case.expected / 100)
+        local selected = case.expected == case.session and labels[1] or labels[2]
+        tooltipContains("Bar · " .. selected .. ":")
+    end
+end
 assert(not string.find(texts(lastBar), " left", 1, true))
 assert(not string.find(texts(lastPanel), " left", 1, true))
 

@@ -89,18 +89,26 @@ local function windowMeter(account, window, index, online, radius)
     return ui.row({ key = "window-" .. tostring(index), align = "center", gap = 4 }, children)
 end
 
--- The tightest healthy balance is the constraint; stale windows cannot displace it.
 local function relevantWindow(account, online)
-    local selected = nil
+    local selected, session, weekly = nil, nil, nil
     for _, window in ipairs(account.windows) do
         local _, current = windowValue(account, window, online)
-        if
-            current and (selected == nil or window.remaining_percent < selected.remaining_percent)
-        then
-            selected = window
+        if current then
+            if selected == nil or window.remaining_percent < selected.remaining_percent then
+                selected = window
+            end
+            local label = string.lower(window.label)
+            if label == "5 hours" or label == "5h" or label == "session" then
+                session = window
+            elseif label == "7 days" or label == "7d" or label == "weekly" then
+                weekly = window
+            end
         end
     end
-    return selected
+    if weekly ~= nil and weekly.remaining_percent < 5 then
+        return weekly
+    end
+    return session or selected
 end
 
 local PROVIDER_GLYPHS = {

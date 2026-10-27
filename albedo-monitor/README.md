@@ -30,8 +30,9 @@ still works; automatic startup requires an updated helper.
 
 - The bar shows a bare working-session count: muted at zero, primary when busy.
 - Each account gets one compact meter and **remaining** percentage, choosing the
-  lowest fresh, healthy quota window. Provider/account names and other windows
-  stay in the tooltip and panel rather than filling the bar.
+  fresh five-hour window unless the seven-day window has less than 5% remaining.
+  If the five-hour window is unavailable, the lowest fresh, healthy window is used.
+  Provider/account names and other windows stay in the tooltip and panel.
 - The panel shows only working or waiting sessions, including child agents.
   Session and account cards follow the shell’s corner-radius setting. Account
   limits show reset countdowns instead of dates; observation timestamps are hidden.
