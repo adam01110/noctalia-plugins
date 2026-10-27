@@ -5,14 +5,23 @@ local pending, command, interval, visible, bar, tooltip, renderedPanel, selected
 local started = 0
 local accepted = true
 local scale = 1
+local borders, borderWidth, borderColor = true, 2, "outline"
 local config = { surgePath = "/tmp/space ' ; $/surge", host = "127.0.0.1:1700" }
 local noctalia = {
     getConfig = function(key)
         return config[key]
     end,
     getSetting = function(key)
-        assert(key == "shell.corner_radius_scale")
-        return scale
+        if key == "shell.corner_radius_scale" then
+            return scale
+        elseif key == "shell.panel.borders" then
+            return borders
+        elseif key == "shell.panel.border_width" then
+            return borderWidth
+        elseif key == "shell.panel.border_color" then
+            return borderColor
+        end
+        error("Unexpected setting: " .. key)
     end,
     expandPath = function(path)
         return path
@@ -129,6 +138,29 @@ local function find(tree, kind)
     end
 end
 
+local function findKey(tree, key)
+    if tree.props.key == key then
+        return tree
+    end
+    for _, child in ipairs(tree.children or {}) do
+        local found = findKey(child, key)
+        if found then
+            return found
+        end
+    end
+end
+local function hasText(tree, text)
+    if tree.props.text == text then
+        return true
+    end
+    for _, child in ipairs(tree.children or {}) do
+        if hasText(child, text) then
+            return true
+        end
+    end
+    return false
+end
+
 assert(visible == false and interval == 2000)
 assert(command[1] == "timeout" and command[2] == "5s")
 assert(command[3] == config.surgePath and command[4] == "ls" and command[5] == "--json")
@@ -154,16 +186,34 @@ click()
 assert(selectedPanel == "adam0/surge:panel")
 onOpen()
 assert(renderedPanel ~= nil and find(renderedPanel, "progress") ~= nil)
+local graph = find(renderedPanel, "graph")
+assert(graph ~= nil and graph.props.height == 76)
+assert(#graph.props.values == 2 and graph.props.values[1] == 0 and graph.props.values[2] == 1)
+assert(state.downloads.speedHistory[2] == 3072)
+assert(hasText(renderedPanel, "3.0 KiB/s") and hasText(renderedPanel, "1s left"))
+local speedCard = findKey(renderedPanel, "speed-card")
+local downloadCard = findKey(renderedPanel, "download-1-a")
+assert(speedCard.props.radius == 12 and speedCard.props.borderWidth == 2)
+assert(downloadCard.props.fill == "surface_variant/0.58" and downloadCard.props.padding == 12)
+local snapshot = state.downloads.speedHistory
 scale = 0
+borders = false
 refresh()
 assert(pending ~= nil)
 reply({ item("a", "downloading", 100, 200, -10) })
 assert(find(bar, "progress").props.radius == 0)
 assert(find(bar, "progress").props.progress == 1)
 assert(state.downloads.items[1].speed == 0)
+assert(#snapshot == 2, "Published history snapshots must not mutate")
+assert(findKey(renderedPanel, "speed-card").props.radius == 0)
+assert(findKey(renderedPanel, "speed-card").props.borderWidth == 0)
+assert(find(renderedPanel, "progress").props.radius == 0)
+assert(hasText(renderedPanel, "ETA —"))
 request()
 reply({ item("unknown", "downloading", 0, 0, 12) })
 assert(visible == true and find(bar, "progress") == nil)
+assert(hasText(renderedPanel, "Size unknown") and hasText(renderedPanel, "ETA —"))
+assert(find(renderedPanel, "progress") == nil)
 request()
 reply({
     item("a", "queued", 1, 0, 0),
@@ -179,6 +229,8 @@ for _, failure in ipairs({ { exitCode = 1 }, { timedOut = true }, { stdoutTrunca
     request()
     reply({}, failure)
     assert(visible == false and #state.downloads.items == 0 and state.downloads.error ~= "")
+    assert(#state.downloads.speedHistory == 0 and find(renderedPanel, "graph") == nil)
+    assert(hasText(renderedPanel, "Server unavailable"))
 end
 for _, malformed in ipairs({ "invalid", { error = "failed" }, { 9 }, { { id = "a" } } }) do
     request()
@@ -197,5 +249,45 @@ config.refreshIntervalSec = 0
 request()
 assert(interval == 1000)
 reply({})
+borders, borderWidth, borderColor = true, 3, "primary"
+scale = 0 / 0
 onClose()
-print("Surge service/bar/panel checks passed")
+local closedPanel = renderedPanel
+for speed = 1, 65 do
+    request()
+    reply({ item("history", "downloading", 1000, 1, speed) })
+end
+assert(renderedPanel == closedPanel, "Closed panels must not render on polls")
+assert(#state.downloads.speedHistory == 60)
+assert(state.downloads.speedHistory[1] == 6 and state.downloads.speedHistory[60] == 65)
+onOpen()
+graph = find(renderedPanel, "graph")
+assert(
+    #graph.props.values == 60 and graph.props.values[1] == 6 / 65 and graph.props.values[60] == 1
+)
+assert(findKey(renderedPanel, "speed-card").props.radius == 12)
+assert(findKey(renderedPanel, "speed-card").props.borderWidth == 3)
+assert(findKey(renderedPanel, "speed-card").props.border == "primary")
+request()
+reply({}, { exitCode = 1 })
+request()
+reply({ item("recovered", "downloading", 1000, 1, 0) })
+assert(#state.downloads.speedHistory == 1 and find(renderedPanel, "graph") == nil)
+assert(hasText(renderedPanel, "Collecting speed history…"))
+request()
+reply({ item("recovered", "downloading", 1000, 1, 0) })
+graph = find(renderedPanel, "graph")
+assert(graph.props.values[1] == 0 and graph.props.values[2] == 0)
+local many = {}
+for index = 1, 42 do
+    many[index] = item(tostring(index), "downloading", 1000000, 10, 1)
+end
+request()
+reply(many)
+assert(hasText(renderedPanel, "2 more active downloads"))
+assert(findKey(renderedPanel, "download-40-40") ~= nil)
+assert(findKey(renderedPanel, "download-41-41") == nil)
+onClose()
+print(
+    "Surge service/bar/panel: bounded history, graph, cards, theme geometry, recovery and idle checks passed"
+)

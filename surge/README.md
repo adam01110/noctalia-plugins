@@ -18,7 +18,13 @@ configuration/environment. The plugin never starts a server or modifies the queu
 
 Only `downloading` entries show the bar. Paused, queued, completed, failed,
 and unreachable-server states hide the entire capsule, including its spacing.
-Click for active filenames, progress, and transfer rates; right-click to refresh.
+Click for a speed-history graph and individual download cards with progress,
+transferred sizes, transfer rates, and estimated time remaining; right-click to
+refresh. The graph uses the latest 60 successful polls, including zero-speed idle
+samples, and scales to the visible peak. Samples are kept in memory while the
+panel is closed; a connection error clears them rather than drawing across an
+unknown interval. The horizontal axis is polls, not elapsed time; manual refreshes
+also add samples. Cards follow the shell's corner and border settings.
 The meter is 26×4, matching Albedo Monitor, with a byte-weighted aggregate
 percentage. If any active download has an unknown size, show a dash instead of
 a misleading percentage. Corner radius follows the shell setting.

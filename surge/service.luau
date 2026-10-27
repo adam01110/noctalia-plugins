@@ -1,6 +1,7 @@
 --!nonstrict
 
 local inFlight = false
+local speedHistory = {}
 
 local function number(value)
     if type(value) == "number" and value == value and math.abs(value) ~= math.huge then
@@ -10,7 +11,24 @@ local function number(value)
 end
 
 local function publish(downloads, errorMessage)
-    noctalia.state.set("downloads", { items = downloads, error = errorMessage or "" })
+    if errorMessage then
+        -- Do not connect a recovered graph across an unknown/offline interval.
+        speedHistory = {}
+    else
+        local speed = 0
+        for _, item in ipairs(downloads) do
+            speed = speed + item.speed
+        end
+        speedHistory[#speedHistory + 1] = speed
+        if #speedHistory > 60 then
+            table.remove(speedHistory, 1)
+        end
+    end
+    noctalia.state.set("downloads", {
+        items = downloads,
+        error = errorMessage or "",
+        speedHistory = table.clone(speedHistory),
+    })
 end
 
 local function normalize(raw)
