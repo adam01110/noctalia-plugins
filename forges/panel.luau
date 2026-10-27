@@ -1,4 +1,5 @@
 --!nonstrict
+local GitLab = require("./lib/gitlab.luau")
 -- Native work queue: forge -> repository scope -> bounded, readable rows.
 local opened = false
 local snapshot = noctalia.state.get("forges.snapshot")
@@ -48,8 +49,15 @@ local function surface(key)
     }
 end
 local function openLink(url)
-    -- Both providers supply HTTPS URLs. Never launch an arbitrary URI scheme.
-    local host = snapshot.provider == "github" and "https://github.com/" or "https://tangled.org/"
+    -- Restrict links to the selected forge origin.
+    local host = snapshot.provider == "github" and "https://github.com/"
+        or (
+            snapshot.provider == "gitlab" and ((snapshot.base_url or "") .. "/")
+            or "https://tangled.org/"
+        )
+    if snapshot.provider == "gitlab" and not snapshot.base_url then
+        return
+    end
     if type(url) ~= "string" or url:sub(1, #host) ~= host then
         return
     end
@@ -70,8 +78,15 @@ end
 function onInspectRepository()
     local value = repositoryDraft:match("^%s*(.-)%s*$")
     local owner, name = value:match("^([%w][%w%.:%-]*)/([%w_%.%-]+)$")
-    if not owner or name == "." or name == ".." or #value > 200 then
-        inputError = "Enter a repository as owner/name."
+    if
+        (snapshot.provider == "gitlab" and not GitLab.validRepository(value))
+        or (
+            snapshot.provider ~= "gitlab"
+            and (not owner or name == "." or name == ".." or #value > 200)
+        )
+    then
+        inputError = snapshot.provider == "gitlab" and "Enter a project as group/subgroup/project."
+            or "Enter a repository as owner/name."
         render()
         return
     end
@@ -288,7 +303,8 @@ render = function()
     if snapshot.provider ~= "github" then
         panel.setNeedsFrameTick(false)
     end
-    local forge = snapshot.provider == "github" and "GitHub" or "Tangled"
+    local forge = snapshot.provider == "github" and "GitHub"
+        or (snapshot.provider == "gitlab" and "GitLab" or "Tangled")
     local headerActions = {
         ui.button({
             key = "profile-tangled",
@@ -306,6 +322,15 @@ render = function()
             tooltip = "Open GitHub profile",
             onClick = function()
                 send({ op = "profile", provider = "github" })
+            end,
+        }),
+        ui.button({
+            key = "profile-gitlab",
+            glyph = "git-branch",
+            controlSize = "sm",
+            tooltip = "Open GitLab profile",
+            onClick = function()
+                send({ op = "profile", provider = "gitlab" })
             end,
         }),
         ui.button({
@@ -340,12 +365,13 @@ render = function()
         )
     end
     local providers = {}
-    for _, value in ipairs({ "tangled", "github" }) do
+    for _, value in ipairs({ "tangled", "github", "gitlab" }) do
         table.insert(
             providers,
             ui.button({
                 key = "provider-" .. value,
-                text = value == "tangled" and "Tangled" or "GitHub",
+                text = value == "tangled" and "Tangled"
+                    or (value == "gitlab" and "GitLab" or "GitHub"),
                 flexGrow = 1,
                 variant = snapshot.provider == value and "primary" or "default",
                 onClick = function()
@@ -360,8 +386,11 @@ render = function()
         )
     end
     local tabs = {}
-    local definitions =
-        { { "repositories", "Repositories" }, { "pulls", "Pull requests" }, { "issues", "Issues" } }
+    local definitions = {
+        { "repositories", "Repositories" },
+        { "pulls", snapshot.provider == "gitlab" and "Merge requests" or "Pull requests" },
+        { "issues", "Issues" },
+    }
     if snapshot.provider == "github" then
         table.insert(definitions, { "notifications", "Inbox" })
     end
@@ -429,7 +458,9 @@ render = function()
                 ui.input({
                     key = "repository-" .. snapshot.provider,
                     value = repositoryDraft,
-                    placeholder = "Inspect owner/repository",
+                    placeholder = snapshot.provider == "gitlab"
+                            and "Inspect group/subgroup/project"
+                        or "Inspect owner/repository",
                     flexGrow = 1,
                     controlSize = "md",
                     onChange = function(value)
@@ -534,7 +565,7 @@ render = function()
                 empty = "Sign in or retry to load results."
             elseif tab == "repositories" then
                 empty = "No repositories returned. Inspect a repository above."
-            elseif snapshot.provider == "tangled" and (snapshot.repository or "") == "" then
+            elseif snapshot.provider ~= "github" and (snapshot.repository or "") == "" then
                 empty = "Choose a repository from Repositories."
             elseif (snapshot.errors or {})[tab] then
                 empty = "Results unavailable. Retry with Refresh."
@@ -542,7 +573,7 @@ render = function()
                 empty = tab == "notifications"
                         and ("No " .. (notificationFilter == "all" and "" or notificationFilter .. " ") .. "notifications in loaded results.")
                     or "No open "
-                        .. (tab == "pulls" and "pull requests" or "issues")
+                        .. (tab == "pulls" and (snapshot.provider == "gitlab" and "merge requests" or "pull requests") or "issues")
                         .. " in this scope."
             end
         end
@@ -588,12 +619,12 @@ render = function()
         }),
         ui.row({ key = "provider-switch", gap = 6 }, providers),
         snapshot.provider == "github" and contributionSection() or ui.button({
-            key = "tangled-contributions",
-            text = "Tangled contributions",
+            key = snapshot.provider .. "-contributions",
+            text = forge .. " contributions",
             controlSize = "sm",
-            tooltip = "Open contribution activity on your Tangled profile",
+            tooltip = "Open contribution activity on your " .. forge .. " profile",
             onClick = function()
-                send({ op = "profile", provider = "tangled" })
+                send({ op = "profile", provider = snapshot.provider })
             end,
         }),
         label(
@@ -604,7 +635,12 @@ render = function()
         ui.row({ gap = 6, align = "center" }, scopeChildren),
         ui.input({
             key = "filter-" .. snapshot.provider .. "-" .. tab .. "-" .. tostring(filterRevision),
-            placeholder = "Filter " .. (tab == "pulls" and "pull requests" or tab),
+            placeholder = "Filter "
+                .. (
+                    tab == "pulls"
+                        and (snapshot.provider == "gitlab" and "merge requests" or "pull requests")
+                    or tab
+                ),
             value = query,
             onChange = function(value)
                 query, inboxPage = value, 1

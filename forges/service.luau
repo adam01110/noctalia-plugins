@@ -1,14 +1,17 @@
 --!nonstrict
+local GitLab = require("./lib/gitlab.luau")
 local GitHub = require("./lib/github.luau")
 local Data = require("./lib/data.luau")
 local Tangled = require("./lib/tangled.luau")
 
 local function defaultProvider()
-    return noctalia.getConfig("provider") == "github" and "github" or "tangled"
+    local value = noctalia.getConfig("provider")
+    return (value == "github" or value == "gitlab") and value or "tangled"
 end
 local provider = defaultProvider()
 local configuredProvider = provider
 local contexts = {}
+local gitlabUrl, gitlabHost = GitLab.instance(noctalia.getConfig("gitlab_url"))
 local sequence = 0
 local actionError
 local ensureView
@@ -109,6 +112,7 @@ local function publish(ctx)
         )
     noctalia.state.set("forges.snapshot", {
         provider = ctx.provider,
+        base_url = ctx.provider == "gitlab" and gitlabUrl or nil,
         account = ctx.account,
         repository = ctx.repository,
         view = ctx.view,
@@ -147,8 +151,14 @@ local function decodeResult(ctx, result)
             or stderr:find("login required", 1, true)
             or stderr:find("gh auth login", 1, true)
             or stderr:find("tg auth login", 1, true)
-        local cli = ctx.provider == "github" and "gh" or "tg"
-        local login = cli == "tg" and "tg auth login <handle>" or "gh auth login"
+            or stderr:find("glab auth login", 1, true)
+        local cli = ctx.provider == "github" and "gh"
+            or (ctx.provider == "gitlab" and "glab" or "tg")
+        local login = cli == "tg" and "tg auth login <handle>"
+            or (
+                cli == "glab" and ("glab auth login --hostname " .. (gitlabHost or "<host>"))
+                or "gh auth login"
+            )
         return nil,
             auth and ("Sign in with " .. login .. ".")
                 or ("Request failed. Check network access and " .. cli .. " authentication."),
@@ -222,7 +232,7 @@ local function request(ctx, item, argv, normalize, force, after, failed)
         end
         -- GraphQL returns viewer identity atomically with the contribution calendar.
         if
-            ctx.provider ~= "github"
+            (ctx.provider ~= "github" and ctx.provider ~= "gitlab")
             or item == ctx.profile
             or (
                 argv[3] == "graphql"
@@ -236,42 +246,48 @@ local function request(ctx, item, argv, normalize, force, after, failed)
         end
         -- gh api has no per-request account selector. Check identity before publishing,
         -- including older inbox pages, to reject detected account switches before caching.
-        local checking = noctalia.runAsync(GitHub.profile(), function(identityResult)
-            if ctx.epoch ~= epoch or finished then
-                return
-            end
-            local identityRaw, identityError, identityAuth = decodeResult(ctx, identityResult)
-            if not identityRaw then
-                finish(nil, identityError, identityAuth)
-                return
-            end
-            local valid, profile = pcall(Data.profile, identityRaw)
-            if not valid or not profile then
-                finish(nil, "Could not verify GitHub account.")
-                return
-            end
-            if profile.id ~= ctx.accountId then
-                finished, item.loading = true, false
-                invalidate(ctx)
-                ctx.account, ctx.accountId, ctx.authError = profile.login, profile.id, false
-                ctx.profile = {
-                    value = profile,
-                    loading = false,
-                    attempted_at = os.time(),
-                    updated_at = os.time(),
-                }
-                publish(ctx)
-                if ctx.provider == provider then
-                    ensureView(ctx, false)
+        local checking = noctalia.runAsync(
+            ctx.provider == "gitlab" and GitLab.profile(gitlabHost) or GitHub.profile(),
+            function(identityResult)
+                if ctx.epoch ~= epoch or finished then
+                    return
                 end
-                return
+                local identityRaw, identityError, identityAuth = decodeResult(ctx, identityResult)
+                if not identityRaw then
+                    finish(nil, identityError, identityAuth)
+                    return
+                end
+                local valid, profile = pcall(
+                    ctx.provider == "gitlab" and GitLab.normalizeProfile or Data.profile,
+                    identityRaw
+                )
+                if not valid or not profile then
+                    finish(nil, "Could not verify forge account.")
+                    return
+                end
+                if profile.id ~= ctx.accountId then
+                    finished, item.loading = true, false
+                    invalidate(ctx)
+                    ctx.account, ctx.accountId, ctx.authError = profile.login, profile.id, false
+                    ctx.profile = {
+                        value = profile,
+                        loading = false,
+                        attempted_at = os.time(),
+                        updated_at = os.time(),
+                    }
+                    publish(ctx)
+                    if ctx.provider == provider then
+                        ensureView(ctx, false)
+                    end
+                    return
+                end
+                ctx.profile.value, ctx.profile.error = profile, nil
+                ctx.profile.updated_at, ctx.profile.attempted_at = os.time(), os.time()
+                finish(value)
             end
-            ctx.profile.value, ctx.profile.error = profile, nil
-            ctx.profile.updated_at, ctx.profile.attempted_at = os.time(), os.time()
-            finish(value)
-        end)
+        )
         if not checking then
-            finish(nil, "Could not verify GitHub account.")
+            finish(nil, "Could not verify forge account.")
         end
     end)
     if not started then
@@ -323,11 +339,18 @@ local function loadView(ctx, force)
             ctx,
             ctx.repositories,
             ctx.provider == "github" and GitHub.repositories()
-                or Tangled.repositories(ctx.accountId),
-            ctx.provider == "github" and Data.repositories or Tangled.normalizeRepositories,
+                or (
+                    ctx.provider == "gitlab" and GitLab.repositories(gitlabHost)
+                    or Tangled.repositories(ctx.accountId)
+                ),
+            ctx.provider == "github" and Data.repositories
+                or (
+                    ctx.provider == "gitlab" and GitLab.normalizeRepositories
+                    or Tangled.normalizeRepositories
+                ),
             force,
             function(rows)
-                if ctx.provider == "tangled" and ctx.repository == "" then
+                if ctx.provider ~= "github" and ctx.repository == "" then
                     ctx.repository = rows[1] and rows[1].name or ""
                 end
             end
@@ -335,7 +358,7 @@ local function loadView(ctx, force)
     elseif ctx.view == "notifications" and ctx.provider == "github" then
         notificationPage(ctx, 1, force)
     elseif ctx.view == "pulls" or ctx.view == "issues" then
-        if ctx.provider == "tangled" and ctx.repository == "" then
+        if ctx.provider ~= "github" and ctx.repository == "" then
             publish(ctx)
             return
         end
@@ -348,10 +371,16 @@ local function loadView(ctx, force)
             ctx,
             entry[kind],
             ctx.provider == "github" and GitHub.work(kind, scope)
-                or Tangled.work(kind, scope, ctx.accountId),
+                or (
+                    ctx.provider == "gitlab" and GitLab.work(gitlabHost, kind, scope)
+                    or Tangled.work(kind, scope, ctx.accountId)
+                ),
             function(raw)
                 return ctx.provider == "github" and Data.work(raw)
-                    or Tangled.normalizeWork(raw, scope, kind)
+                    or (
+                        ctx.provider == "gitlab" and GitLab.normalizeWork(raw, scope)
+                        or Tangled.normalizeWork(raw, scope, kind)
+                    )
             end,
             force
         )
@@ -374,7 +403,7 @@ local function ensureAccount(ctx, force, success, failed)
             end
         end
     end
-    local cli = ctx.provider == "github" and "gh" or "tg"
+    local cli = ctx.provider == "github" and "gh" or (ctx.provider == "gitlab" and "glab" or "tg")
     if not noctalia.commandExists(cli) then
         ctx.missingCli = true
         ctx.profile.error = "Missing " .. cli .. ". Install it to use this forge."
@@ -383,11 +412,20 @@ local function ensureAccount(ctx, force, success, failed)
         return
     end
     ctx.missingCli = false
+    if ctx.provider == "gitlab" and not gitlabHost then
+        ctx.profile.error =
+            "Set GitLab instance URL to an HTTPS origin, for example https://gitlab.school.edu."
+        publish(ctx)
+        notify(ctx.profile.error)
+        return
+    end
     request(
         ctx,
         ctx.profile,
-        ctx.provider == "github" and GitHub.profile() or Tangled.profile(),
-        ctx.provider == "github" and Data.profile or Tangled.normalizeProfile,
+        ctx.provider == "github" and GitHub.profile()
+            or (ctx.provider == "gitlab" and GitLab.profile(gitlabHost) or Tangled.profile()),
+        ctx.provider == "github" and Data.profile
+            or (ctx.provider == "gitlab" and GitLab.normalizeProfile or Tangled.normalizeProfile),
         force,
         function(profile)
             if ctx.accountId ~= "" and ctx.accountId ~= profile.id then
@@ -423,7 +461,14 @@ local function command(value)
         return
     end
     actionError = nil
-    if value.op == "profile" and (value.provider == "tangled" or value.provider == "github") then
+    if
+        value.op == "profile"
+        and (
+            value.provider == "tangled"
+            or value.provider == "github"
+            or value.provider == "gitlab"
+        )
+    then
         local ctx = context(value.provider)
         local function failed(message)
             actionError = message
@@ -435,14 +480,19 @@ local function command(value)
                 return
             end
             local host = ctx.provider == "github" and "https://github.com/"
-                or "https://tangled.org/"
+                or (ctx.provider == "gitlab" and (gitlabUrl .. "/") or "https://tangled.org/")
             if not noctalia.runAsync({ "xdg-open", host .. ctx.account }) then
                 failed("Could not open forge profile.")
             end
         end, failed)
         publish(context(provider))
     elseif
-        value.op == "provider" and (value.provider == "tangled" or value.provider == "github")
+        value.op == "provider"
+        and (
+            value.provider == "tangled"
+            or value.provider == "github"
+            or value.provider == "gitlab"
+        )
     then
         provider = value.provider
         local ctx = context(provider)
@@ -454,7 +504,13 @@ local function command(value)
             if value.repository == "" and provider ~= "github" then
                 return
             end
-            if value.repository ~= "" and not validRepository(value.repository) then
+            if
+                value.repository ~= ""
+                and not (
+                    provider == "gitlab" and GitLab.validRepository(value.repository)
+                    or provider ~= "gitlab" and validRepository(value.repository)
+                )
+            then
                 return
             end
             ctx.repository, ctx.view = value.repository, "pulls"
@@ -494,6 +550,15 @@ function update()
 end
 function onConfigChanged()
     noctalia.setUpdateInterval(interval() * 1000)
+    local nextUrl, nextHost = GitLab.instance(noctalia.getConfig("gitlab_url"))
+    if nextUrl ~= gitlabUrl then
+        invalidate(context("gitlab"))
+        context("gitlab").profile = resource()
+        context("gitlab").view = "repositories"
+        context("gitlab").accountWaiters = {}
+        context("gitlab").authError = false
+        gitlabUrl, gitlabHost = nextUrl, nextHost
+    end
     local nextDefault = defaultProvider()
     if configuredProvider ~= nextDefault then
         configuredProvider, provider = nextDefault, nextDefault

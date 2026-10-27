@@ -16,6 +16,10 @@ local Tangled = (function()
     -- TANGLED_SOURCE
 end)()
 
+local GitLab = (function()
+    -- GITLAB_SOURCE
+end)()
+
 local function copy(value)
     if type(value) ~= "table" then
         return value
@@ -111,6 +115,97 @@ local function respond(value, code, stderr)
     })
     return request.argv
 end
+assert(GitLab.instance(nil) == "https://gitlab.com")
+assert(GitLab.instance("https://GitLab.school.edu/") == "https://gitlab.school.edu")
+for _, url in ipairs({
+    "http://school.edu",
+    "https://school.edu/path",
+    "https://user@school.edu",
+    "https://school.edu?token=x",
+    "https://school.edu/#x",
+    "--hostname",
+}) do
+    assert(GitLab.instance(url) == nil)
+end
+assert(GitLab.validRepository("school/course/project"))
+assert(not GitLab.validRepository("school/../project"))
+assert(not GitLab.validRepository("school//project"))
+assert(not GitLab.validRepository("school/project;echo"))
+assert(
+    GitLab.work("gitlab.school.edu", "pulls", "school/course/project")[3]
+        == "projects/school%2Fcourse%2Fproject/merge_requests?scope=all&state=opened&order_by=updated_at&per_page=30"
+)
+local glProfile = { id = 42, username = "student" }
+local glRepos = {
+    {
+        path_with_namespace = "school/course/project",
+        web_url = "https://gitlab.school.edu/school/course/project",
+    },
+}
+boot({ provider = "gitlab", gitlab_url = "https://gitlab.school.edu/" })
+service()
+assert(queue[1].argv[1] == "glab" and queue[1].argv[5] == "gitlab.school.edu")
+respond(glProfile)
+respond(glRepos)
+assert(snapshot().repositories[1] == nil)
+respond(glProfile)
+assert(snapshot().repositories[1].name == "school/course/project")
+assert(snapshot().base_url == "https://gitlab.school.edu")
+send({ op = "repository", repository = "school/course/project" })
+assert(queue[1].argv[3]:find("school%%2Fcourse%%2Fproject"))
+respond({
+    {
+        iid = 3,
+        title = "Assignment",
+        author = { username = "student" },
+        web_url = "https://gitlab.school.edu/school/course/project/-/merge_requests/3",
+    },
+})
+respond(glProfile)
+assert(snapshot().pulls[1].id == "3")
+send({ op = "profile", provider = "gitlab" })
+assert(lastLaunch[2] == "https://gitlab.school.edu/student")
+send({ op = "refresh" })
+local late = table.remove(queue, 1)
+config.gitlab_url = "https://other.school.edu"
+onConfigChanged()
+assert(snapshot().account == "" and #snapshot().repositories == 0 and #snapshot().pulls == 0)
+late.callback({ exitCode = 0, stdout = glProfile })
+assert(snapshot().account == "")
+assert(queue[1].argv[5] == "other.school.edu")
+respond(glProfile)
+respond({})
+respond(glProfile)
+assert(snapshot().status == "ready")
+boot({ provider = "gitlab", gitlab_url = "https://school.edu/path" })
+service()
+assert(#queue == 0 and snapshot().errors.account:find("HTTPS origin"))
+boot({ provider = "gitlab" })
+service()
+respond({}, 1, "401 Unauthorized")
+assert(snapshot().status == "auth_error" and snapshot().errors.account:find("glab auth login"))
+
+boot({ provider = "gitlab" })
+service()
+respond(glProfile)
+respond(glRepos)
+respond({ id = 99, username = "other" })
+assert(snapshot().account == "other" and #snapshot().repositories == 0)
+respond({})
+respond({ id = 99, username = "other" })
+assert(snapshot().status == "ready")
+send({ op = "repository", repository = "school/course/project" })
+respond({})
+respond({ id = 99, username = "other" })
+send({ op = "view", view = "issues" })
+assert(queue[1].argv[3]:find("/issues?", 1, true))
+respond({ { iid = 7, title = "Question" } })
+respond({ id = 99, username = "other" })
+assert(snapshot().issues[1].id == "7")
+missingCommands.glab = true
+send({ op = "refresh" })
+assert(snapshot().status == "missing_cli" and snapshot().errors.account:find("glab"))
+
 local tgRepo = { items = { { author = "alice.test", name = "project", description = "Example" } } }
 local tgWork = {
     items = {
@@ -553,14 +648,15 @@ panelEntry()
 onOpen()
 local actions = lastPanel.children[1].children[3].children
 assert(
-    actions[1].props.text == nil and actions[2].props.text == nil,
+    actions[1].props.text == nil and actions[2].props.text == nil and actions[3].props.text == nil,
     "Profile controls must be icon-only"
 )
 assert(
     actions[1].props.key == "profile-tangled"
         and actions[2].props.key == "profile-github"
-        and actions[3].props.tooltip == "Refresh",
-    "Both profile controls must sit immediately left of reload"
+        and actions[3].props.key == "profile-gitlab"
+        and actions[4].props.tooltip == "Refresh",
+    "All profile controls must sit immediately left of reload"
 )
 assert(
     lastPanel.children[2].props.key == "provider-switch"
@@ -813,6 +909,37 @@ for _, cell in ipairs({ grid.children[1].children[1], grid.children[#grid.childr
         "Absent leading/future slots must be transparent, not black zero-activity days"
     )
 end
+noctalia.state.set("forges.snapshot", {
+    provider = "gitlab",
+    base_url = "https://gitlab.school.edu",
+    account = "student",
+    status = "ready",
+    view = "repositories",
+    repository = "school/course/project",
+    repositories = GitLab.normalizeRepositories(glRepos),
+    pulls = {},
+    issues = {},
+    errors = {},
+})
+assert(find("button", function(props)
+    return props.text == "GitLab"
+end))
+assert(find("button", function(props)
+    return props.text == "Merge requests"
+end))
+assert(not find("button", function(props)
+    return props.text == "Inbox"
+end))
+assert(lastPanel.children[3].props.key == "gitlab-contributions")
+lastPanel.children[3].props.onClick()
+assert(lastCommand.provider == "gitlab")
+local repoInput = assert(find("input", function(props)
+    return props.key == "repository-gitlab"
+end))
+repoInput.props.onChange("school/course/project")
+onInspectRepository()
+assert(lastCommand.repository == "school/course/project")
+
 local renders = panelRenders
 onClose()
 noctalia.state.set("forges.snapshot", values["forges.snapshot"])
@@ -834,6 +961,11 @@ widgetEntry()
 assert(glyph == "git-branch" and tooltip:find("Tangled", 1, true))
 onClick()
 assert(toggled == "adam0/forges:panel")
+noctalia.state.set(
+    "forges.snapshot",
+    { provider = "gitlab", account = "student", status = "ready" }
+)
+assert(tooltip:find("GitLab", 1, true))
 print(
-    "Forges: pinned contribution header, transparent calendar gaps, independent profile actions, provider/resource caches, inbox history/filters, account invalidation, race/error recovery and native surfaces passed"
+    "Forges: GitLab custom hosts, nested groups, merge requests/issues, instance/account invalidation, pinned contribution header, transparent calendar gaps, independent profile actions, provider/resource caches, inbox history/filters, account invalidation, race/error recovery and native surfaces passed"
 )

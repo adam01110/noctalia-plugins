@@ -6,6 +6,8 @@
 		"floating": "Floating",
 		"attached": "Attached to bar",
 		"tangled": "Tangled",
-		"github": "GitHub"
+		"github": "GitHub",
+		"gitlab": "GitLab",
+		"gitlab_url": "GitLab instance URL (HTTPS)"
 	}
 }

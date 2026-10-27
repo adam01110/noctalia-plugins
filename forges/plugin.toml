@@ -1,13 +1,13 @@
 id = "adam0/forges"
 name = "Forges"
-version = "0.3.2"
+version = "0.4.0"
 plugin_api = 34
 author = "Shangshui0302, Adam0"
 license = "MIT"
 icon = "git-branch"
-description = "Tangled and GitHub workspaces with cached queues, contribution history, and a read-only GitHub inbox."
+description = "Tangled, GitHub, and self-hosted GitLab workspaces with cached queues, contribution history, and a read-only GitHub inbox."
 tags = ["bar", "panel", "service", "development", "productivity"]
-dependencies = ["tg", "gh", "xdg-open"]
+dependencies = ["tg", "gh", "glab", "xdg-open"]
 
 [[setting]]
 key = "provider"
@@ -17,7 +17,14 @@ default = "tangled"
 options = [
   { value = "tangled", label_key = "settings.tangled" },
   { value = "github", label_key = "settings.github" },
+  { value = "gitlab", label_key = "settings.gitlab" },
 ]
+
+[[setting]]
+key = "gitlab_url"
+type = "string"
+label_key = "settings.gitlab_url"
+default = "https://gitlab.com"
 
 [[setting]]
 key = "refresh_interval_minutes"

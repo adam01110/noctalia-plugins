@@ -14,6 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 for plugin in ("albedo-monitor", "noctaproton-vpn", "forges", "surge"):
     manifest = tomllib.loads((ROOT / plugin / "plugin.toml").read_text())
     if plugin == "forges":
+        settings = {item["key"]: item for item in manifest["setting"]}
+        assert settings["gitlab_url"]["default"] == "https://gitlab.com"
+        assert any(option["value"] == "gitlab" for option in settings["provider"]["options"])
+        assert "glab" in manifest["dependencies"]
         assert manifest["plugin_api"] == 34, "Forges must remain compatible with API 34"
         assert manifest["panel"][0]["height"] == 800, "Forges needs the requested taller workspace"
     panel = manifest["panel"][0]
@@ -105,13 +109,14 @@ with tempfile.TemporaryDirectory(prefix="noctalia-plugin-tests-") as directory:
         ("GITHUB_SOURCE", "lib/github.luau"),
         ("DATA_SOURCE", "lib/data.luau"),
         ("TANGLED_SOURCE", "lib/tangled.luau"),
+        ("GITLAB_SOURCE", "lib/gitlab.luau"),
         ("SERVICE_SOURCE", "service.luau"),
         ("PANEL_SOURCE", "panel.luau"),
         ("WIDGET_SOURCE", "widget.luau"),
     ):
         content = (ROOT / "forges" / filename).read_text()
-        if filename == "service.luau":
-            for module in ("GitHub", "Data", "Tangled"):
+        if filename in ("service.luau", "panel.luau"):
+            for module in ("GitHub", "Data", "Tangled", "GitLab"):
                 content = content.replace(
                     'require("./lib/' + module.lower() + '.luau")', module
                 )
