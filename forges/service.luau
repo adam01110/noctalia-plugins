@@ -235,6 +235,13 @@ local function request(ctx, item, argv, normalize, force, after, failed)
         end
         local normalized, value, normalizationError = pcall(normalize, raw)
         if not normalized or value == nil then
+            if ctx.provider == "tangled" and item == ctx.contributions then
+                local detail = normalized and normalizationError or tostring(value)
+                detail = detail or "calendar validation returned no data"
+                detail = detail:match(":%d+:%s*(.*)") or detail
+                finish(nil, "Tangled calendar: " .. detail)
+                return
+            end
             finish(
                 nil,
                 ctx.provider == "gitlab"
@@ -443,12 +450,12 @@ local function loadView(ctx, force)
                 if not daily then
                     return nil, error
                 end
-                local value = daily
-                    and Data.dailyContributions(daily.counts, daily.login, 0, daily.firstDate)
-                if value then
-                    value.caption = tostring(value.total) .. " public commits in " .. daily.year
-                    value.unit = "commits"
+                local value = Data.dailyContributions(daily.counts, daily.login, 0, daily.firstDate)
+                if not value then
+                    return nil, "dated graph conversion rejected the commit counts"
                 end
+                value.caption = tostring(value.total) .. " public commits in " .. daily.year
+                value.unit = "commits"
                 return value
             end
             if ctx.provider == "gitlab" then

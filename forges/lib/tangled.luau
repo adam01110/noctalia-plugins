@@ -111,7 +111,7 @@ function Tangled.contributions(account)
 end
 function Tangled.normalizeContributions(raw, login)
     if type(raw.html) ~= "string" or #raw.html > 1048576 then
-        return nil
+        return nil, "profile HTML is absent or exceeds the response limit"
     end
     local start, cursor = raw.html:find("<div%s[^>]*%sdata%-punchcard[%s=>]")
     if not start then
@@ -125,7 +125,7 @@ function Tangled.normalizeContributions(raw, login)
     while depth > 0 do
         local tagStart, tagEnd, closing = raw.html:find("<(/?)div[%s>]", cursor + 1)
         if not tagStart then
-            return nil
+            return nil, "profile HTML ended before the punchcard grid closed"
         end
         depth = depth + (closing == "/" and -1 or 1)
         cursor, finish = tagEnd, tagEnd
@@ -135,7 +135,7 @@ function Tangled.normalizeContributions(raw, login)
         raw.html:sub(start, finish):gmatch('title="(%d%d%d%d%-%d%d%-%d%d): (%d+) commits?"')
     do
         if counts[date] or (year and year ~= date:sub(1, 4)) then
-            return nil
+            return nil, "punchcard contains duplicate dates or multiple years"
         end
         year = date:sub(1, 4)
         counts[date], n = tonumber(count), n + 1
@@ -149,12 +149,12 @@ function Tangled.normalizeContributions(raw, login)
     local expected = 0
     for timestamp = first, last, 86400 do
         if counts[os.date("!%Y-%m-%d", timestamp)] == nil then
-            return nil
+            return nil, "punchcard is missing a day in its declared year"
         end
         expected += 1
     end
     if n ~= expected then
-        return nil
+        return nil, "punchcard day count disagrees with its declared year"
     end
     return { counts = counts, login = login, firstDate = year .. "-01-01", year = year }
 end

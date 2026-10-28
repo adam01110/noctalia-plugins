@@ -564,6 +564,27 @@ assert(
     calls == publicCalls and snapshot().view == "issues",
     "Tangled must not expose an invented inbox API"
 )
+local originalCalendarNormalizer = Tangled.normalizeContributions
+Tangled.normalizeContributions = function()
+    error("calendar runtime probe exception")
+end
+boot({}, true)
+service()
+respond({ authenticated = true, handle = "alice.test", did = tgDid })
+respond(tgHtml)
+assert(
+    snapshot().errors.contributions == "Tangled calendar: calendar runtime probe exception",
+    "Do not hide calendar exceptions behind an unexpected CLI response"
+)
+Tangled.normalizeContributions = originalCalendarNormalizer
+boot({}, true)
+service()
+respond({ authenticated = true, handle = "alice.test", did = tgDid })
+respond("<div data-punchcard><div>")
+assert(
+    snapshot().errors.contributions
+        == "Tangled calendar: profile HTML ended before the punchcard grid closed"
+)
 print(
     "Forges parity: daily calendars/timezones, public Tangled authored work and repository links, GitLab role unions and paginated read-only to-dos passed"
 )
