@@ -174,7 +174,36 @@ local function decodeResult(ctx, result)
     end
     return raw
 end
-local function request(ctx, item, argv, normalize, force, after, failed)
+local calendarQueue, calendarTickQueued, calendarTick = {}, false, 0
+local function calendarError(detail)
+    detail = tostring(detail or "calendar validation returned no data")
+    return "Tangled calendar: " .. (detail:match(":%d+:%s*(.*)") or detail)
+end
+local function scheduleCalendarTick()
+    if calendarTickQueued or #calendarQueue == 0 then
+        return
+    end
+    calendarTickQueued = true
+    calendarTick += 1
+    noctalia.state.set("forges.calendar_step", calendarTick)
+end
+-- Each state event has a fresh CPU budget; a coroutine would retain its caller's budget.
+noctalia.state.watch("forges.calendar_step", function()
+    calendarTickQueued = false
+    local job = table.remove(calendarQueue, 1)
+    if job and job.ctx.epoch == job.epoch then
+        local ok, done, value, error = pcall(job.step)
+        if not ok then
+            job.finish(nil, calendarError(done))
+        elseif done then
+            job.finish(value, value == nil and calendarError(error) or nil)
+        else
+            table.insert(calendarQueue, job)
+        end
+    end
+    scheduleCalendarTick()
+end)
+local function request(ctx, item, argv, normalize, force, after, failed, staged)
     if item.loading then
         return
     end
@@ -233,15 +262,21 @@ local function request(ctx, item, argv, normalize, force, after, failed)
             finish(nil, error, auth)
             return
         end
+        if staged then
+            local ok, step, error = pcall(staged, raw)
+            if not ok or type(step) ~= "function" then
+                finish(nil, calendarError(ok and error or step))
+            else
+                table.insert(
+                    calendarQueue,
+                    { ctx = ctx, epoch = epoch, step = step, finish = finish }
+                )
+                scheduleCalendarTick()
+            end
+            return
+        end
         local normalized, value, normalizationError = pcall(normalize, raw)
         if not normalized or value == nil then
-            if ctx.provider == "tangled" and item == ctx.contributions then
-                local detail = normalized and normalizationError or tostring(value)
-                detail = detail or "calendar validation returned no data"
-                detail = detail:match(":%d+:%s*(.*)") or detail
-                finish(nil, "Tangled calendar: " .. detail)
-                return
-            end
             finish(
                 nil,
                 ctx.provider == "gitlab"
@@ -434,6 +469,40 @@ local function notificationPage(ctx, page, force)
             value.rows, page, value.has_more, value.cursor
     end)
 end
+local function tangledCalendar(raw, login)
+    local parser, error = Tangled.newContributions(raw, login)
+    if not parser then
+        return nil, error
+    end
+    local builder
+    return function()
+        if not parser.done then
+            Tangled.stepContributions(parser)
+            if not parser.done then
+                return false
+            end
+            if not parser.value then
+                return true, nil, parser.error
+            end
+            local daily = parser.value
+            builder = Data.newDailyContributions(daily.counts, daily.login, 0, daily.firstDate)
+            if not builder then
+                return true, nil, "dated graph conversion rejected the commit counts"
+            end
+            return false
+        end
+        if not Data.stepDailyContributions(builder) then
+            return false
+        end
+        local value = builder.value
+        if not value then
+            return true, nil, "dated graph conversion rejected the commit counts"
+        end
+        value.caption = tostring(value.total) .. " public commits in " .. parser.value.year
+        value.unit = "commits"
+        return true, value
+    end
+end
 local function loadView(ctx, force)
     if ctx.account == "" then
         return
@@ -445,19 +514,6 @@ local function loadView(ctx, force)
                 or GitHub.contributions()
             )
         request(ctx, ctx.contributions, argv, function(raw)
-            if ctx.provider == "tangled" then
-                local daily, error = Tangled.normalizeContributions(raw, ctx.account)
-                if not daily then
-                    return nil, error
-                end
-                local value = Data.dailyContributions(daily.counts, daily.login, 0, daily.firstDate)
-                if not value then
-                    return nil, "dated graph conversion rejected the commit counts"
-                end
-                value.caption = tostring(value.total) .. " public commits in " .. daily.year
-                value.unit = "commits"
-                return value
-            end
             if ctx.provider == "gitlab" then
                 local daily = GitLab.normalizeContributions(raw)
                 if not daily or daily.login ~= ctx.account then
@@ -471,7 +527,9 @@ local function loadView(ctx, force)
             end
             local value = Data.contributions(raw)
             return value and value.login == ctx.account and value or nil
-        end, force)
+        end, force, nil, nil, ctx.provider == "tangled" and function(raw)
+            return tangledCalendar(raw, ctx.account)
+        end or nil)
     else
         ctx.contributions.error = "Install curl to load the public Tangled commit calendar."
     end

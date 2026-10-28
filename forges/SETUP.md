@@ -64,6 +64,9 @@ It is parsed from the public profile's HTML because `tg` and Bobbin expose no
 calendar endpoint. This is a compatibility surface, not a stable JSON API: a
 missing, changed, or incomplete grid produces an unavailable state and profile
 link, never an invented empty year. Future days are omitted from totals/streaks.
+HTML parsing and calendar conversion run in bounded state-watch callbacks so a
+profile cannot exhaust Noctalia's per-callback CPU budget. Account changes cancel
+pending processing before it can publish.
 
 Tangled's Authored work uses Bobbin's public `listIssuesBy`/`listPullsBy` endpoints,
 not a scan of your repositories. It inspects the newest 100 authored records,

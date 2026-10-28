@@ -34,6 +34,7 @@ end
 local config, settings, values, watches, queue, exists, failStart, missingCommands
 local calls, lastPanel, panelRenders, lastCommand, lastLaunch, glyph, tooltip, toggled, wantsFrames
 local nodeCreations = 0
+local calendarEvents = {}
 local noctalia = {
     nowMs = function()
         return 100
@@ -69,7 +70,13 @@ local noctalia = {
                 lastCommand = value
             end
             for _, watcher in ipairs(watches[key] or {}) do
-                watcher(copy(value))
+                if key == "forges.calendar_step" then
+                    table.insert(calendarEvents, function()
+                        watcher(copy(value))
+                    end)
+                else
+                    watcher(copy(value))
+                end
             end
         end,
         watch = function(key, callback)
@@ -98,6 +105,7 @@ local function boot(options, publicData)
     settings, values, watches, queue, missingCommands = {}, {}, {}, {}, {}
     exists, failStart, calls = true, false, 0
     missingCommands.curl = not publicData
+    calendarEvents = {}
 end
 local function service()
     -- SERVICE_SOURCE
@@ -108,13 +116,25 @@ end
 local function send(value)
     noctalia.state.set("forges.command", value)
 end
-local function respond(value, code, stderr)
+local function drainCalendar(limit)
+    local steps = 0
+    while #calendarEvents > 0 and (not limit or steps < limit) do
+        steps += 1
+        assert(steps <= 10000, "Calendar processing must terminate")
+        table.remove(calendarEvents, 1)()
+    end
+    return steps
+end
+local function respond(value, code, stderr, deferCalendar)
     local request = assert(table.remove(queue, 1), "Expected queued request")
     request.callback({
         exitCode = code or 0,
         stdout = value,
         stderr = stderr or "secret must never appear in UI",
     })
+    if not deferCalendar then
+        drainCalendar()
+    end
     return request.argv
 end
 assert(GitLab.instance(nil) == "https://gitlab.com")
@@ -564,8 +584,91 @@ assert(
     calls == publicCalls and snapshot().view == "issues",
     "Tangled must not expose an invented inbox API"
 )
-local originalCalendarNormalizer = Tangled.normalizeContributions
-Tangled.normalizeContributions = function()
+local largeProfile = string.rep('<div class="unrelated"></div>', 32000) .. tgHtml
+assert(#largeProfile < 1048576)
+assert(Tangled.normalizeContributions({ html = largeProfile }, "alice.test"))
+assert(
+    Tangled.normalizeContributions(
+        { html = '<div data-large="' .. string.rep("x", 9000) .. '"></div>' .. tgHtml },
+        "alice.test"
+    )
+)
+local parserJob = assert(Tangled.newContributions({ html = tgHtml }, "alice.test"))
+local parserSteps = 0
+repeat
+    local previousCount, previousExpected = parserJob.count, parserJob.expected or 0
+    Tangled.stepContributions(parserJob)
+    assert(parserJob.count - previousCount <= 16)
+    assert((parserJob.expected or 0) - previousExpected <= 16)
+    parserSteps += 1
+until parserJob.done
+assert(parserJob.value and parserSteps > 50, "A whole punchcard must span fresh callback budgets")
+local dailyJob =
+    assert(Data.newDailyContributions(tgDaily.counts, "alice.test", 0, tgDaily.firstDate))
+local streakCounts, levelDates = {}, {}
+for index, n in ipairs({ 10, 6, 3, 0, 2, 0 }) do
+    local date = os.date("!%Y-%m-%d", clock + (index - 6) * 86400)
+    streakCounts[date], levelDates[index] = n, date
+end
+local streakGraph = assert(Data.dailyContributions(streakCounts, "alice.test", 0, levelDates[1]))
+assert(
+    streakGraph.total == 21
+        and streakGraph.today == 0
+        and streakGraph.currentStreak == 1
+        and streakGraph.bestStreak == 3
+)
+local expectedLevels = { 4, 3, 2, 0, 1, 0 }
+for _, week in ipairs(streakGraph.weeks) do
+    for _, day in ipairs(week.days) do
+        if day then
+            local index = table.find(levelDates, day.date)
+            assert(index and day.level == expectedLevels[index])
+        end
+    end
+end
+streakCounts[today] = 4
+streakGraph = assert(Data.dailyContributions(streakCounts, "alice.test", 0, levelDates[1]))
+assert(
+    streakGraph.total == 25
+        and streakGraph.today == 4
+        and streakGraph.currentStreak == 2
+        and streakGraph.bestStreak == 3
+)
+local dailySteps = 0
+repeat
+    local previousIndex, previousStamp = dailyJob.index, dailyJob.stamp
+    Data.stepDailyContributions(dailyJob)
+    assert(dailyJob.index - previousIndex <= 16 and dailyJob.stamp - previousStamp <= 16 * 86400)
+    dailySteps += 1
+until dailyJob.done
+assert(dailyJob.value.total == 4 and dailySteps > 20)
+boot({}, true)
+service()
+respond({ authenticated = true, handle = "alice.test", did = tgDid })
+respond(tgHtml, nil, nil, true)
+assert(
+    snapshot().loading.contributions and not snapshot().contributions and #calendarEvents == 1,
+    "The network callback must only enqueue parsing, not normalize the calendar"
+)
+drainCalendar(1)
+assert(snapshot().loading.contributions and not snapshot().contributions and #calendarEvents == 1)
+assert(drainCalendar() > 50)
+assert(snapshot().contributions.today == 4 and not snapshot().loading.contributions)
+boot({}, true)
+service()
+respond({ authenticated = true, handle = "alice.test", did = tgDid })
+respond(tgHtml, nil, nil, true)
+local pendingRepositories = table.remove(queue, 1)
+send({ op = "refresh" })
+respond({ authenticated = false }, nil, nil, true)
+drainCalendar()
+pendingRepositories.callback({ exitCode = 0, stdout = tgRepo })
+assert(
+    snapshot().account == "" and not snapshot().contributions and #calendarEvents == 0,
+    "Logout must cancel staged calendar publication and stop its continuation"
+)
+local originalCalendarNormalizer = Tangled.stepContributions
+Tangled.stepContributions = function()
     error("calendar runtime probe exception")
 end
 boot({}, true)
@@ -576,7 +679,7 @@ assert(
     snapshot().errors.contributions == "Tangled calendar: calendar runtime probe exception",
     "Do not hide calendar exceptions behind an unexpected CLI response"
 )
-Tangled.normalizeContributions = originalCalendarNormalizer
+Tangled.stepContributions = originalCalendarNormalizer
 boot({}, true)
 service()
 respond({ authenticated = true, handle = "alice.test", did = tgDid })

@@ -177,35 +177,9 @@ function Data.contributions(raw, todayDate)
         lastDate = days[#days].date,
     }
 end
-function Data.dailyContributions(counts, login, utcOffset, firstDate)
+function Data.newDailyContributions(counts, login, utcOffset, firstDate)
     if type(counts) ~= "table" or type(login) ~= "string" then
         return nil
-    end
-    local entries = 0
-    for date, n in pairs(counts) do
-        entries += 1
-        if entries > 367 then
-            return nil
-        end
-        if
-            type(date) ~= "string"
-            or not date:match("^%d%d%d%d%-%d%d%-%d%d$")
-            or type(n) ~= "number"
-            or n ~= n
-            or n < 0
-            or n % 1 ~= 0
-            or n > 1000000000
-        then
-            return nil
-        end
-        local year, month, day = date:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)$")
-        local valid, timestamp = pcall(
-            os.time,
-            { year = tonumber(year), month = tonumber(month), day = tonumber(day), hour = 0 }
-        )
-        if not valid or os.date("!%Y-%m-%d", timestamp) ~= date then
-            return nil
-        end
     end
     utcOffset = utcOffset or 0
     if type(utcOffset) ~= "number" or utcOffset ~= utcOffset or math.abs(utcOffset) > 86400 then
@@ -213,62 +187,126 @@ function Data.dailyContributions(counts, login, utcOffset, firstDate)
     end
     local today = os.date("!*t", os.time() + utcOffset)
     local midnight = os.time({ year = today.year, month = today.month, day = today.day, hour = 0 })
-    local priorDay = today.day
-    if today.month == 2 and priorDay == 29 then
-        priorDay = 28
-    end
+    local priorDay = today.month == 2 and today.day == 29 and 28 or today.day
     local first = os.time({ year = today.year - 1, month = today.month, day = priorDay, hour = 0 })
     if firstDate then
         local year, month, day = firstDate:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)$")
         if not year then
             return nil
         end
-        first = os.time({
-            year = tonumber(year),
-            month = tonumber(month),
-            day = tonumber(day),
-            hour = 0,
-        })
+        local valid, stamp = pcall(
+            os.time,
+            { year = tonumber(year), month = tonumber(month), day = tonumber(day), hour = 0 }
+        )
         if
-            first > midnight
-            or midnight - first > 366 * 86400
-            or os.date("!%Y-%m-%d", first) ~= firstDate
+            not valid
+            or not stamp
+            or stamp > midnight
+            or midnight - stamp > 366 * 86400
+            or os.date("!%Y-%m-%d", stamp) ~= firstDate
         then
             return nil
         end
+        first = stamp
     end
-    local weeks, week, total = {}, nil, 0
-    local levels =
-        { "NONE", "FIRST_QUARTILE", "SECOND_QUARTILE", "THIRD_QUARTILE", "FOURTH_QUARTILE" }
-    for timestamp = first, midnight, 86400 do
-        local date = os.date("!%Y-%m-%d", timestamp)
-        local weekday = tonumber(os.date("!%w", timestamp))
-        local n = counts[date] or 0
-        if type(n) ~= "number" or n ~= n or n < 0 or n % 1 ~= 0 or n > 1000000000 then
+    local dates = {}
+    for date in pairs(counts) do
+        if #dates >= 367 then
             return nil
         end
-        if not week or weekday == 0 then
-            week = { contributionDays = {} }
-            table.insert(weeks, week)
-        end
-        local level = n == 0 and 1 or (n < 3 and 2 or (n < 6 and 3 or (n < 10 and 4 or 5)))
-        table.insert(week.contributionDays, {
-            date = date,
-            weekday = weekday,
-            contributionCount = n,
-            contributionLevel = levels[level],
-        })
-        total += n
+        table.insert(dates, date)
     end
-    return Data.contributions({
-        data = {
-            viewer = {
-                login = login,
-                contributionsCollection = {
-                    contributionCalendar = { totalContributions = total, weeks = weeks },
-                },
-            },
+    return {
+        counts = counts,
+        dates = dates,
+        index = 1,
+        phase = "validate",
+        stamp = first,
+        midnight = midnight,
+        todayDate = os.date("!%Y-%m-%d", midnight),
+        running = 0,
+        graph = {
+            login = login,
+            total = 0,
+            weeks = {},
+            today = 0,
+            currentStreak = 0,
+            bestStreak = 0,
+            firstDate = os.date("!%Y-%m-%d", first),
+            lastDate = os.date("!%Y-%m-%d", midnight),
         },
-    }, os.date("!%Y-%m-%d", midnight))
+    }
+end
+function Data.stepDailyContributions(job)
+    if job.done then
+        return true
+    end
+    for _ = 1, 16 do
+        if job.phase == "validate" then
+            local date = job.dates[job.index]
+            if date == nil then
+                job.phase = "build"
+                break
+            end
+            local n = job.counts[date]
+            if
+                type(date) ~= "string"
+                or not date:match("^%d%d%d%d%-%d%d%-%d%d$")
+                or type(n) ~= "number"
+                or n ~= n
+                or n < 0
+                or n % 1 ~= 0
+                or n > 1000000000
+            then
+                job.done = true
+                return true
+            end
+            local year, month, day = date:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)$")
+            local valid, timestamp = pcall(
+                os.time,
+                { year = tonumber(year), month = tonumber(month), day = tonumber(day), hour = 0 }
+            )
+            if not valid or not timestamp or os.date("!%Y-%m-%d", timestamp) ~= date then
+                job.done = true
+                return true
+            end
+            job.index += 1
+        else
+            if job.stamp > job.midnight then
+                job.value = job.graph.total <= 1000000000 and job.graph or nil
+                job.done = true
+                return true
+            end
+            local graph = job.graph
+            local date = os.date("!%Y-%m-%d", job.stamp)
+            local weekday = tonumber(os.date("!%w", job.stamp))
+            local n = job.counts[date] or 0
+            if not job.week or weekday == 0 then
+                job.week = { days = { false, false, false, false, false, false, false } }
+                table.insert(graph.weeks, job.week)
+            end
+            local level = n == 0 and 0 or (n < 3 and 1 or (n < 6 and 2 or (n < 10 and 3 or 4)))
+            job.week.days[weekday + 1] = { date = date, count = n, level = level }
+            graph.total += n
+            if date == job.todayDate then
+                graph.today = n
+            end
+            local previous = job.running
+            job.running = n > 0 and job.running + 1 or 0
+            graph.bestStreak = math.max(graph.bestStreak, job.running)
+            graph.currentStreak = date == job.todayDate and n == 0 and previous or job.running
+            job.stamp += 86400
+        end
+    end
+    return false
+end
+function Data.dailyContributions(counts, login, utcOffset, firstDate)
+    local job = Data.newDailyContributions(counts, login, utcOffset, firstDate)
+    if not job then
+        return nil
+    end
+    while not Data.stepDailyContributions(job) do
+    end
+    return job.value
 end
 return Data
