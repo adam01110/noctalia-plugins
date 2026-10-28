@@ -75,7 +75,7 @@ function Data.notifications(raw)
     return out
 end
 -- Adapted from the upstream contribution calendar; keep actual calendar slots.
-function Data.contributions(raw)
+function Data.contributions(raw, todayDate)
     if type(raw.errors) == "table" and next(raw.errors) ~= nil then
         return nil
     end
@@ -145,7 +145,7 @@ function Data.contributions(raw)
     if #days == 0 then
         return nil
     end
-    local today, todayCount, current, best = os.date("!%Y-%m-%d"), 0, 0, 0
+    local today, todayCount, current, best = todayDate or os.date("!%Y-%m-%d"), 0, 0, 0
     for _, day in ipairs(days) do
         if day.date == today then
             todayCount = day.count
@@ -176,5 +176,99 @@ function Data.contributions(raw)
         firstDate = days[1].date,
         lastDate = days[#days].date,
     }
+end
+function Data.dailyContributions(counts, login, utcOffset, firstDate)
+    if type(counts) ~= "table" or type(login) ~= "string" then
+        return nil
+    end
+    local entries = 0
+    for date, n in pairs(counts) do
+        entries += 1
+        if entries > 367 then
+            return nil
+        end
+        if
+            type(date) ~= "string"
+            or not date:match("^%d%d%d%d%-%d%d%-%d%d$")
+            or type(n) ~= "number"
+            or n ~= n
+            or n < 0
+            or n % 1 ~= 0
+            or n > 1000000000
+        then
+            return nil
+        end
+        local year, month, day = date:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)$")
+        local valid, timestamp = pcall(
+            os.time,
+            { year = tonumber(year), month = tonumber(month), day = tonumber(day), hour = 0 }
+        )
+        if not valid or os.date("!%Y-%m-%d", timestamp) ~= date then
+            return nil
+        end
+    end
+    utcOffset = utcOffset or 0
+    if type(utcOffset) ~= "number" or utcOffset ~= utcOffset or math.abs(utcOffset) > 86400 then
+        return nil
+    end
+    local today = os.date("!*t", os.time() + utcOffset)
+    local midnight = os.time({ year = today.year, month = today.month, day = today.day, hour = 0 })
+    local priorDay = today.day
+    if today.month == 2 and priorDay == 29 then
+        priorDay = 28
+    end
+    local first = os.time({ year = today.year - 1, month = today.month, day = priorDay, hour = 0 })
+    if firstDate then
+        local year, month, day = firstDate:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)$")
+        if not year then
+            return nil
+        end
+        first = os.time({
+            year = tonumber(year),
+            month = tonumber(month),
+            day = tonumber(day),
+            hour = 0,
+        })
+        if
+            first > midnight
+            or midnight - first > 366 * 86400
+            or os.date("!%Y-%m-%d", first) ~= firstDate
+        then
+            return nil
+        end
+    end
+    local weeks, week, total = {}, nil, 0
+    local levels =
+        { "NONE", "FIRST_QUARTILE", "SECOND_QUARTILE", "THIRD_QUARTILE", "FOURTH_QUARTILE" }
+    for timestamp = first, midnight, 86400 do
+        local date = os.date("!%Y-%m-%d", timestamp)
+        local weekday = tonumber(os.date("!%w", timestamp))
+        local n = counts[date] or 0
+        if type(n) ~= "number" or n ~= n or n < 0 or n % 1 ~= 0 or n > 1000000000 then
+            return nil
+        end
+        if not week or weekday == 0 then
+            week = { contributionDays = {} }
+            table.insert(weeks, week)
+        end
+        local level = n == 0 and 1 or (n < 3 and 2 or (n < 6 and 3 or (n < 10 and 4 or 5)))
+        table.insert(week.contributionDays, {
+            date = date,
+            weekday = weekday,
+            contributionCount = n,
+            contributionLevel = levels[level],
+        })
+        total += n
+    end
+    return Data.contributions({
+        data = {
+            viewer = {
+                login = login,
+                contributionsCollection = {
+                    contributionCalendar = { totalContributions = total, weeks = weeks },
+                },
+            },
+        },
+    }, os.date("!%Y-%m-%d", midnight))
 end
 return Data

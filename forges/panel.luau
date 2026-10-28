@@ -128,7 +128,13 @@ local function workRow(item)
         meta ..= " · " .. item.author
     end
     return ui.column(
-        surface(snapshot.provider .. "-" .. tab .. "-" .. item.repository .. "-" .. item.id),
+        surface(
+            snapshot.provider
+                .. "-"
+                .. tab
+                .. "-"
+                .. (item.uri or (item.repository .. "-" .. item.id))
+        ),
         {
             ui.row({ gap = 8, align = "center" }, {
                 ui.glyph({
@@ -169,7 +175,11 @@ local function prepareCalendar()
         return nil
     end
     local scale = math.clamp(finite(noctalia.getSetting("shell.corner_radius_scale"), 1), 0, 2)
-    local key = (snapshot.account or "")
+    local key = snapshot.provider
+        .. ":"
+        .. (snapshot.base_url or "")
+        .. ":"
+        .. (snapshot.account or "")
         .. ":"
         .. tostring((snapshot.versions or {}).contributions or 0)
         .. ":"
@@ -194,6 +204,13 @@ local function contributionSection()
                     ),
                 14
             ),
+            ui.button({
+                text = "Open profile activity",
+                controlSize = "sm",
+                onClick = function()
+                    send({ op = "profile", provider = snapshot.provider })
+                end,
+            }),
         })
     end
     local legend = { label("Less", 10) }
@@ -211,11 +228,11 @@ local function contributionSection()
     end
     table.insert(legend, label("More", 10))
     local detail = selectedDay
-            and (selectedDay.date .. " · " .. tostring(selectedDay.count) .. " contributions")
+            and (selectedDay.date .. " · " .. tostring(selectedDay.count) .. " " .. (data.unit or "contributions"))
         or (data.firstDate .. " — " .. data.lastDate)
     local children = {
         ui.label({
-            text = tostring(data.total) .. " contributions in the last year",
+            text = data.caption or (tostring(data.total) .. " contributions in the last year"),
             fontSize = 16,
             fontWeight = "semibold",
         }),
@@ -243,7 +260,7 @@ local function contributionSection()
     return ui.column({ key = "contribution-calendar", gap = 10 }, children)
 end
 function onFrameTick()
-    if not opened or snapshot.provider ~= "github" or calendar.node or not calendar.data then
+    if not opened or not snapshot.contributions or calendar.node or not calendar.data then
         panel.setNeedsFrameTick(false)
         return
     end
@@ -265,7 +282,11 @@ function onFrameTick()
                         radius = 2 * calendar.scale,
                         fill = COLORS[value.level + 1],
                         opacity = value.level == 0 and 0.4 or 1,
-                        tooltip = value.date .. " · " .. tostring(value.count) .. " contributions",
+                        tooltip = value.date
+                            .. " · "
+                            .. tostring(value.count)
+                            .. " "
+                            .. (calendar.data.unit or "contributions"),
                         onClick = function()
                             selectedDay = value
                             render()
@@ -297,10 +318,11 @@ render = function()
     if not opened then
         return
     end
-    if snapshot.provider ~= "github" and tab == "notifications" then
+    if snapshot.provider == "tangled" and tab == "notifications" then
         tab = "repositories"
     end
-    if snapshot.provider ~= "github" then
+    if not snapshot.contributions then
+        calendar = { columns = {}, nextWeek = 1 }
         panel.setNeedsFrameTick(false)
     end
     local forge = snapshot.provider == "github" and "GitHub"
@@ -391,8 +413,11 @@ render = function()
         { "pulls", snapshot.provider == "gitlab" and "Merge requests" or "Pull requests" },
         { "issues", "Issues" },
     }
-    if snapshot.provider == "github" then
-        table.insert(definitions, { "notifications", "Inbox" })
+    if snapshot.provider ~= "tangled" then
+        table.insert(
+            definitions,
+            { "notifications", snapshot.provider == "gitlab" and "To-dos" or "Inbox" }
+        )
     end
     for _, definition in ipairs(definitions) do
         local key, title = definition[1], definition[2]
@@ -417,14 +442,21 @@ render = function()
     end
     local context = snapshot.repository or ""
     if context == "" then
-        context = snapshot.provider == "github" and "Your open work · all repositories"
-            or "Choose a repository to view work"
+        context = snapshot.provider == "tangled"
+                and "Open authored work · newest 100 public records"
+            or (
+                snapshot.provider == "gitlab"
+                    and "Authored, assigned, or review-requested · latest 30"
+                or "Your open work · all repositories"
+            )
     end
     if tab == "repositories" then
         context = "Your repositories · inspect any repository"
     end
     if tab == "notifications" then
-        context = "Available GitHub notification history · read-only"
+        context = snapshot.provider == "gitlab"
+                and "GitLab to-do history · pending and done · read-only"
+            or "Available GitHub notification history · read-only"
     end
     local content = {}
     local resourceKey = tab == "overview" and "contributions" or tab
@@ -474,11 +506,13 @@ render = function()
     end
     if tab == "notifications" then
         local filters = {}
-        for _, value in ipairs({ "all", "unread", "read" }) do
+        local states = snapshot.provider == "gitlab" and { "all", "pending", "done" }
+            or { "all", "unread", "read" }
+        for _, value in ipairs(states) do
             table.insert(
                 filters,
                 ui.button({
-                    text = value == "all" and "All" or (value == "unread" and "Unread" or "Read"),
+                    text = value:sub(1, 1):upper() .. value:sub(2),
                     controlSize = "sm",
                     variant = notificationFilter == value and "primary" or "default",
                     onClick = function()
@@ -547,7 +581,8 @@ render = function()
         table.insert(
             content,
             ui.button({
-                text = "Load older notifications",
+                text = snapshot.provider == "gitlab" and "Load older to-dos"
+                    or "Load older notifications",
                 controlSize = "md",
                 enabled = not (snapshot.loading or {}).notifications,
                 onClick = function()
@@ -565,8 +600,6 @@ render = function()
                 empty = "Sign in or retry to load results."
             elseif tab == "repositories" then
                 empty = "No repositories returned. Inspect a repository above."
-            elseif snapshot.provider ~= "github" and (snapshot.repository or "") == "" then
-                empty = "Choose a repository from Repositories."
             elseif (snapshot.errors or {})[tab] then
                 empty = "Results unavailable. Retry with Refresh."
             else
@@ -595,15 +628,11 @@ render = function()
             maxLines = 1,
         }),
     }
-    if
-        snapshot.provider == "github"
-        and (snapshot.repository or "") ~= ""
-        and (tab == "pulls" or tab == "issues")
-    then
+    if (snapshot.repository or "") ~= "" and (tab == "pulls" or tab == "issues") then
         table.insert(
             scopeChildren,
             ui.button({
-                text = "All work",
+                text = snapshot.provider == "tangled" and "Authored work" or "All work",
                 controlSize = "sm",
                 onClick = function()
                     selectRepository("")
@@ -618,15 +647,7 @@ render = function()
             ui.row({ gap = 6 }, headerActions),
         }),
         ui.row({ key = "provider-switch", gap = 6 }, providers),
-        snapshot.provider == "github" and contributionSection() or ui.button({
-            key = snapshot.provider .. "-contributions",
-            text = forge .. " contributions",
-            controlSize = "sm",
-            tooltip = "Open contribution activity on your " .. forge .. " profile",
-            onClick = function()
-                send({ op = "profile", provider = snapshot.provider })
-            end,
-        }),
+        contributionSection(),
         label(
             (snapshot.account or "") ~= "" and ("@" .. snapshot.account .. " · " .. forge)
                 or (forge .. " · account unavailable")
@@ -670,6 +691,7 @@ noctalia.state.watch("forges.snapshot", function(value)
     end
     if value.provider ~= snapshot.provider then
         query, repositoryDraft, inputError = "", "", ""
+        notificationFilter, inboxPage = "all", 1
     end
     snapshot = value
     tab = snapshot.view == "overview" and "repositories" or (snapshot.view or "repositories")

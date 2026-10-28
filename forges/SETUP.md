@@ -1,6 +1,7 @@
 # Forges
 
-Forges is a read-only Tangled/GitHub/GitLab work queue for Noctalia v5.3.0 (API 34).
+Forges is a read-only Tangled/GitHub/GitLab work queue for Noctalia v5.3.0
+(API 34).
 It adapts Shangshui0302's MIT-licensed [GitHub Kanban](https://github.com/noctalia-dev/community-plugins/tree/63150dc53560297140164083b4d14d4aaaf59bc8/github-kanban)
 0.2.6. The upstream snapshot declares MIT in its manifest and includes no separate
 license file; original author attribution is retained in the manifest and
@@ -8,7 +9,7 @@ adapted helpers.
 
 ## Accounts and switching
 
-Install `tg`, `gh`, `glab`, and `xdg-open`. Authenticate outside the plugin:
+Install `tg`, `gh`, `glab`, `curl`, and `xdg-open`. Authenticate outside the plugin:
 
 ```sh
 tg auth login your.handle
@@ -23,8 +24,20 @@ credentials, or query parameters. HTTP and subpath installations are not support
 Authenticate `glab` against the same hostname (including port when applicable),
 using a token with `read_api` access. Credentials remain managed by `glab`.
 GitLab lists up to 50 membership projects and 30 open merge requests/issues per
-project. Nested groups such as `school/course/project` are supported. Contribution
-activity opens the GitLab profile; the calendar and inbox remain GitHub-only.
+project. Nested groups such as `school/course/project` are supported. All work
+unions authored and assigned work, plus review-requested merge requests, across
+projects. Each role query loads its latest 30 updates; duplicates are removed and
+the latest 30 combined results are shown.
+
+GitLab's contribution calendar uses the experimental `contributionCalendar`
+GraphQL field introduced in GitLab 19.5. Older instances keep working without a
+graph and offer **Open profile activity** instead. Calendar failure does not
+block work queues or to-dos. Dates use the calendar's reported UTC offset.
+The **To-dos** tab loads pending and done items together, including snoozed items
+returned by GitLab. All/Pending/Done filters and 20-row display pages are local;
+Load older to-dos follows GraphQL cursors, up to 500 loaded items. These are
+GitLab to-dos, not a complete copy of GitHub's notification model. No read-state
+or completion writes are made.
 Changing the instance clears GitLab's private caches and rejects pending responses
 from the previous instance. No credentials are stored in plugin settings.
 
@@ -35,16 +48,30 @@ Changing the default in settings also switches the current session.
 
 Repositories lists up to 50 repositories returned by the CLI. Inspect a row, or
 enter `owner/repository`, to view its open pull requests and issues (up to 30 each).
-Tangled work is repository-scoped; the first returned repository is selected
-initially. All forges open on Repositories. GitHub's full-year contribution
+All forges open on Repositories with no repository scope selected. Inspecting a
+repository switches to its work; All work (GitHub/GitLab) or Authored work
+(Tangled) returns to the cross-repository scope. GitHub's full-year contribution
 calendar stays directly below the forge selector, above every queue, with
 today/current/best-streak metrics. Graph construction is staged and reused across
 renders. Day tooltips and clicks show the date and contribution count; missing
 and future slots remain transparent rather than inheriting a black box fill.
-Tangled's `tg` CLI has no contribution-calendar endpoint; the contribution button
-in the same header position opens native profile activity instead.
+Tangled shows its current-year **public commit** punchcard in the same position.
+It is parsed from the public profile's HTML because `tg` and Bobbin expose no
+calendar endpoint. This is a compatibility surface, not a stable JSON API: a
+missing, changed, or incomplete grid produces an unavailable state and profile
+link, never an invented empty year. Future days are omitted from totals/streaks.
 
-The separate Tangled, GitHub, and GitLab buttons immediately left of Reload open the
+Tangled's Authored work uses Bobbin's public `listIssuesBy`/`listPullsBy` endpoints,
+not a scan of your repositories. It inspects the newest 100 authored records,
+filters open items locally, and displays up to 30. Closed/merged records can
+consume that bound; it is not an exhaustive open-work search. Pulls use their
+target repository. Repository DIDs are resolved to repository links with bounded
+sequential lookups; failed lookups retain the DID and a labeled author-profile
+fallback. Assigned/review-requested work and a Tangled inbox remain unsupported:
+no suitable authenticated interface is available through `tg`, and the plugin
+does not read tokens or borrow browser sessions.
+
+The separate Tangled, GitHub, and GitLab buttons left of Reload open the
 corresponding profiles without switching forge or loading queues. An unvisited
 forge resolves only its account when its profile button is clicked. The panel is
 580 pixels wide and 800 pixels tall.
@@ -65,22 +92,26 @@ Each forge retains its own verified account and independent in-memory caches for
 repositories, contributions, inbox history, and repository-scoped PR/issue lists.
 Switching providers or revisiting a fresh view reuses these results immediately;
 it does not refetch other lists. The first visit loads only the selected queue
-plus GitHub's visible contribution header. Repository changes reuse the fresh
-calendar and fetch only the requested work list. Up to eight repository
+plus the visible contribution header. Repository changes reuse the fresh
+calendar and fetch only the requested work list. Up to 60 Tangled repository
+metadata lookups are cached per account. Up to eight repository
 scopes are retained per forge. Valid empty results are cached too.
 
-Refresh explicitly reloads the selected queue and GitHub's visible contribution
+Refresh explicitly reloads the selected queue and the visible contribution
 header, not every resource. The configured interval controls freshness; stale
 visible resources revalidate in the background
 while its last-good results remain visible. Inactive providers do not poll. A
 failed request neither erases successful results nor advances their freshness.
 Caches are session-local and are not written to disk.
 
-Tangled requests are pinned with `tg --account` to the verified account. GitLab requests target the configured host and verify account identity after REST requests.
+Tangled CLI requests are pinned with `tg --account` to the verified account.
+Public Tangled requests use the verified handle/DID without credentials, with
+fixed HTTPS origins, timeouts, and response-size limits. GitLab requests target
+the configured host and verify account identity after requests.
 GitHub requests target github.com explicitly; REST data is withheld until a postflight
 account check, and GraphQL calendars include their viewer identity. A detected
 account change or logout clears private caches and invalidates pending callbacks.
-The separate `gh` processes cannot make credentials atomic against an account
+The separate `gh`/`glab` processes cannot make credentials atomic against an account
 switch and switch-back during a single request; no tokens are read or passed in
 arguments. Late same-account responses can fill their own provider/repository
 cache without changing the active view.

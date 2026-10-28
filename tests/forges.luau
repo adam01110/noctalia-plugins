@@ -1,9 +1,10 @@
 --!nonstrict
 local clock = 1700000000
+local systemTime = os.time
 local os = {
     date = os.date,
-    time = function()
-        return clock
+    time = function(value)
+        return value and systemTime(value) or clock
     end,
 }
 local GitHub = (function()
@@ -92,10 +93,11 @@ local noctalia = {
         toggled = id
     end,
 }
-local function boot(options)
+local function boot(options, publicData)
     config = options or {}
     settings, values, watches, queue, missingCommands = {}, {}, {}, {}, {}
     exists, failStart, calls = true, false, 0
+    missingCommands.curl = not publicData
 end
 local function service()
     -- SERVICE_SOURCE
@@ -135,6 +137,10 @@ assert(
     GitLab.work("gitlab.school.edu", "pulls", "school/course/project")[3]
         == "projects/school%2Fcourse%2Fproject/merge_requests?scope=all&state=opened&order_by=updated_at&per_page=30"
 )
+local function unsupportedCalendar()
+    assert(queue[1].argv[3] == "graphql" and queue[1].argv[7]:find("contributionCalendar", 1, true))
+    respond({ errors = { { message = "Field contributionCalendar does not exist" } } })
+end
 local glProfile = { id = 42, username = "student" }
 local glRepos = {
     {
@@ -146,6 +152,7 @@ boot({ provider = "gitlab", gitlab_url = "https://gitlab.school.edu/" })
 service()
 assert(queue[1].argv[1] == "glab" and queue[1].argv[5] == "gitlab.school.edu")
 respond(glProfile)
+unsupportedCalendar()
 respond(glRepos)
 assert(snapshot().repositories[1] == nil)
 respond(glProfile)
@@ -174,6 +181,7 @@ late.callback({ exitCode = 0, stdout = glProfile })
 assert(snapshot().account == "")
 assert(queue[1].argv[5] == "other.school.edu")
 respond(glProfile)
+unsupportedCalendar()
 respond({})
 respond(glProfile)
 assert(snapshot().status == "ready")
@@ -188,9 +196,11 @@ assert(snapshot().status == "auth_error" and snapshot().errors.account:find("gla
 boot({ provider = "gitlab" })
 service()
 respond(glProfile)
+unsupportedCalendar()
 respond(glRepos)
 respond({ id = 99, username = "other" })
 assert(snapshot().account == "other" and #snapshot().repositories == 0)
+unsupportedCalendar()
 respond({})
 respond({ id = 99, username = "other" })
 assert(snapshot().status == "ready")
@@ -266,6 +276,288 @@ local function respondGh(value, id, login)
     )
     respond({ id = id or 1, login = login or "octocat" })
 end
+local today = os.date("!%Y-%m-%d", clock)
+local function glCalendar(login, count)
+    return {
+        data = {
+            currentUser = {
+                username = login or "student",
+                contributionCalendar = {
+                    totalCount = count or 4,
+                    utcOffset = 0,
+                    days = { { date = today, count = count or 4 } },
+                },
+            },
+        },
+    }
+end
+local function glTodoPage(nodes, more, cursor)
+    return {
+        data = {
+            currentUser = {
+                username = "student",
+                todos = {
+                    nodes = nodes,
+                    pageInfo = { hasNextPage = more or false, endCursor = cursor },
+                },
+            },
+        },
+    }
+end
+local todoPending = {
+    id = "gid://gitlab/Todo/1",
+    body = "Review assignment",
+    state = "pending",
+    createdAt = today,
+    targetUrl = "https://gitlab.com/school/course/project/-/merge_requests/2",
+    project = { fullPath = "school/course/project" },
+    author = { username = "teacher" },
+}
+local todoDone =
+    { id = "gid://gitlab/Todo/2", body = "Submitted", state = "done", createdAt = today }
+local todoData = GitLab.normalizeNotifications(
+    glTodoPage({ todoPending, todoDone }, true, "cursor-1"),
+    "student"
+)
+assert(
+    #todoData.rows == 2 and todoData.rows[1].state == "pending" and todoData.rows[2].state == "done"
+)
+assert(todoData.has_more and todoData.cursor == "cursor-1")
+assert(GitLab.normalizeNotifications(glTodoPage({}, true), "student") == nil)
+assert(GitLab.normalizeNotifications(glTodoPage({ todoPending }), "other") == nil)
+assert(GitLab.normalizeNotifications({ errors = { { message = "denied" } } }, "student") == nil)
+assert(GitLab.notifications("gitlab.school.edu", "cursor-1")[9] == "cursor=cursor-1")
+local glItem = {
+    iid = "2",
+    title = "Review",
+    state = "opened",
+    updatedAt = today,
+    webUrl = "https://gitlab.com/school/course/project/-/merge_requests/2",
+    project = { fullPath = "school/course/project" },
+}
+local allMergeRequests = {
+    data = {
+        currentUser = {
+            username = "student",
+            authored = { nodes = { glItem } },
+            assigned = { nodes = { glItem } },
+            reviewing = { nodes = {} },
+        },
+    },
+}
+local allIssues = {
+    data = {
+        currentUser = { username = "student" },
+        authored = {
+            nodes = {
+                {
+                    iid = "3",
+                    title = "Issue",
+                    state = "opened",
+                    updatedAt = today,
+                    webUrl = "https://gitlab.com/school/course/project/-/issues/3",
+                },
+            },
+        },
+        assigned = { nodes = {} },
+    },
+}
+assert(#GitLab.normalizeWork(allMergeRequests, "", "student") == 1)
+assert(GitLab.normalizeWork(allIssues, "", "student")[1].repository == "school/course/project")
+assert(GitLab.normalizeWork(allMergeRequests, "", "other") == nil)
+assert(GitLab.normalizeWork({ errors = { {} } }, "", "student") == nil)
+assert(
+    GitLab.work("gitlab.com", "pulls", "", "student")[7]
+        :find("reviewRequestedMergeRequests", 1, true)
+)
+assert(GitLab.work("gitlab.com", "issues", "", "student")[9] == "login=student")
+local normalCalendar = Data.dailyContributions({ [today] = 4 }, "student")
+assert(
+    normalCalendar.today == 4 and normalCalendar.total == 4 and normalCalendar.currentStreak == 1
+)
+assert(Data.dailyContributions({ ["2023-02-30"] = 1 }, "student") == nil)
+assert(Data.dailyContributions({ [today] = -1 }, "student") == nil)
+assert(Data.dailyContributions({ [today] = math.huge }, "student") == nil)
+local savedClock = clock
+clock = systemTime({ year = 2024, month = 1, day = 1, hour = 23, min = 30 })
+local timezoneCalendar = Data.dailyContributions({ ["2024-01-02"] = 5 }, "student", 3600)
+assert(
+    timezoneCalendar.today == 5
+        and timezoneCalendar.currentStreak == 1
+        and timezoneCalendar.lastDate == "2024-01-02"
+)
+local timezoneStreak = Data.dailyContributions({ ["2024-01-01"] = 3 }, "student", 3600)
+assert(timezoneStreak.today == 0 and timezoneStreak.currentStreak == 1)
+clock = savedClock
+local function tangledHtml()
+    local year = tonumber(today:sub(1, 4))
+    local parts = { '<div data-punchcard class="grid">' }
+    for stamp = systemTime({ year = year, month = 1, day = 1, hour = 0 }), systemTime({ year = year + 1, month = 1, day = 1, hour = 0 }) - 86400, 86400 do
+        local date = os.date("!%Y-%m-%d", stamp)
+        table.insert(
+            parts,
+            '<div><div title="'
+                .. date
+                .. ": "
+                .. (date == today and "4" or "0")
+                .. ' commits"></div></div>'
+        )
+    end
+    table.insert(parts, '</div><div title="' .. today .. ': 999 commits"></div>')
+    return table.concat(parts)
+end
+local tgHtml = tangledHtml()
+local tgDaily = assert(Tangled.normalizeContributions({ html = tgHtml }, "alice.test"))
+assert(tgDaily.counts[today] == 4, "Ignore matching titles outside the punchcard grid")
+assert(Tangled.normalizeContributions({ html = "<div data-punchcard></div>" }, "alice.test") == nil)
+assert(
+    Tangled.normalizeContributions(
+        { html = tgHtml:gsub(today:gsub("%-", "%%-") .. ": 4", "2023-99-99: 4", 1) },
+        "alice.test"
+    ) == nil
+)
+assert(Data.dailyContributions(tgDaily.counts, tgDaily.login, 0, tgDaily.firstDate).total == 4)
+local tgDid = "did:plc:alice"
+local tgAuthored = {
+    items = {
+        {
+            uri = "at://" .. tgDid .. "/sh.tangled.repo.issue/task1",
+            state = "open",
+            value = { title = "Public question", repo = "did:plc:project", createdAt = today },
+        },
+    },
+}
+assert(
+    Tangled.normalizeAuthoredWork(tgAuthored, tgDid, "alice.test", "issues")[1].repoDid
+        == "did:plc:project"
+)
+assert(Tangled.normalizeAuthoredWork(tgAuthored, "did:plc:other", "other.test", "issues") == nil)
+assert(Tangled.normalizeAuthoredWork(tgAuthored, tgDid, "alice.test", "pulls") == nil)
+local tgPulls = copy(tgAuthored)
+tgPulls.items[1].uri = "at://" .. tgDid .. "/sh.tangled.repo.pull/task1"
+tgPulls.items[1].value.repo = nil
+tgPulls.items[1].value.target = { repo = "did:plc:destination" }
+tgPulls.items[1].value.source = { repo = "did:plc:source" }
+assert(
+    Tangled.normalizeAuthoredWork(tgPulls, tgDid, "alice.test", "pulls")[1].repoDid
+        == "did:plc:destination"
+)
+tgPulls.items[1].state = "merged"
+assert(#Tangled.normalizeAuthoredWork(tgPulls, tgDid, "alice.test", "pulls") == 0)
+local closedIssue = copy(tgAuthored)
+closedIssue.items[1].state = "closed"
+assert(#Tangled.normalizeAuthoredWork(closedIssue, tgDid, "alice.test", "issues") == 0)
+assert(
+    Tangled.normalizeRepositoryInfo({ uri = "at://did:plc:owner/sh.tangled.repo/project" }).url
+        == "https://tangled.org/did:plc:owner/project"
+)
+assert(Tangled.normalizeRepositoryInfo({ uri = "https://evil.invalid/" }) == nil)
+boot({ provider = "gitlab" })
+service()
+respond(glProfile)
+respond(glCalendar())
+respond(glRepos)
+respond(glProfile)
+respond(glProfile)
+assert(snapshot().contributions.today == 4 and #queue == 0)
+send({ op = "view", view = "notifications" })
+assert(queue[1].argv[7]:find("state: [pending, done]", 1, true))
+respond(glTodoPage({ todoPending }, true, "cursor-1"))
+respond(glProfile)
+assert(snapshot().notifications[1].state == "pending" and snapshot().notification_has_more)
+send({ op = "notifications_more" })
+assert(queue[1].argv[9] == "cursor=cursor-1")
+respond({ errors = { { message = "temporary failure" } } })
+assert(
+    snapshot().notification_page == 1
+        and snapshot().notification_has_more
+        and #snapshot().notifications == 1
+)
+send({ op = "notifications_more" })
+assert(queue[1].argv[9] == "cursor=cursor-1")
+respond(glTodoPage({ todoPending, todoDone }))
+respond(glProfile)
+assert(
+    #snapshot().notifications == 2
+        and snapshot().notification_page == 2
+        and not snapshot().notification_has_more
+)
+send({ op = "view", view = "pulls" })
+assert(queue[1].argv[3] == "graphql")
+respond(allMergeRequests)
+respond(glProfile)
+assert(#snapshot().pulls == 1 and snapshot().repository == "")
+send({ op = "view", view = "issues" })
+respond(allIssues)
+respond(glProfile)
+assert(snapshot().issues[1].repository == "school/course/project")
+local cachedCalls = calls
+send({ op = "view", view = "notifications" })
+send({ op = "view", view = "pulls" })
+assert(calls == cachedCalls, "GitLab calendars, inbox and global work retain independent caches")
+boot({}, true)
+service()
+respond({ authenticated = true, handle = "alice.test", did = tgDid })
+assert(queue[1].argv[1] == "curl")
+respond(tgHtml)
+respond(tgRepo)
+assert(
+    snapshot().contributions.unit == "commits"
+        and snapshot().contributions.today == 4
+        and snapshot().repository == ""
+)
+send({ op = "view", view = "issues" })
+assert(queue[1].argv[#queue[1].argv]:find("listIssuesBy", 1, true))
+respond(tgAuthored)
+assert(snapshot().issues[1].repoDid == "did:plc:project")
+assert(queue[1].argv[#queue[1].argv]:find("getRepoByRepoDid", 1, true))
+respond({ uri = "at://did:plc:owner/sh.tangled.repo/project" })
+assert(snapshot().issues[1].repository == "did:plc:owner/project")
+assert(snapshot().issues[1].url == "https://tangled.org/did:plc:owner/project/issues")
+local tgCached = calls
+send({ op = "view", view = "repositories" })
+send({ op = "view", view = "issues" })
+assert(calls == tgCached, "Public Tangled calendar/work/repository metadata are cached")
+send({ op = "view", view = "pulls" })
+respond(tgAuthored)
+assert(
+    #snapshot().pulls == 0 and snapshot().errors.pulls,
+    "Reject a mismatched authored collection, without fallback normalization"
+)
+send({ op = "view", view = "issues" })
+send({ op = "refresh" })
+respond({ authenticated = true, handle = "alice.test", did = tgDid })
+respond(tgHtml)
+local nextWork = copy(tgAuthored)
+nextWork.items[1].value.repo = "did:plc:second"
+respond(nextWork)
+local pendingDetail = assert(table.remove(queue, 1))
+send({ op = "refresh" })
+respond({ authenticated = true, handle = "alice.test", did = tgDid })
+respond(tgHtml)
+nextWork.items[1].value.title = "Updated during resolution"
+respond(nextWork)
+pendingDetail.callback({
+    exitCode = 0,
+    stdout = { uri = "at://did:plc:owner/sh.tangled.repo/second" },
+})
+assert(
+    snapshot().issues[1].title == "Updated during resolution"
+        and snapshot().issues[1].repository == "did:plc:owner/second"
+)
+assert(
+    #queue == 0,
+    "A refreshed resolution chain must resume after an older detail request completes"
+)
+local publicCalls = calls
+send({ op = "view", view = "notifications" })
+assert(
+    calls == publicCalls and snapshot().view == "issues",
+    "Tangled must not expose an invented inbox API"
+)
+print(
+    "Forges parity: daily calendars/timezones, public Tangled authored work and repository links, GitLab role unions and paginated read-only to-dos passed"
+)
 boot()
 service()
 assert(queue[1].argv[1] == "tg", "Tangled is the default")
@@ -277,7 +569,7 @@ assert(
 respond(tgRepo)
 assert(snapshot().status == "ready" and snapshot().account == "alice.test" and #queue == 0)
 assert(
-    snapshot().repository == "alice.test/project" and #snapshot().pulls == 0,
+    snapshot().repository == "" and #snapshot().pulls == 0,
     "Initial repository view must not prefetch unrelated work"
 )
 local before = calls
@@ -660,14 +952,16 @@ assert(
 )
 assert(
     lastPanel.children[2].props.key == "provider-switch"
-        and lastPanel.children[3].props.key == "tangled-contributions",
-    "Tangled contribution shortcut belongs directly below forge selection, outside the list"
+        and lastPanel.children[3].props.key == "contribution-calendar",
+    "Tangled calendar belongs directly below forge selection, outside the list"
 )
 actions[1].props.onClick()
 assert(lastCommand.op == "profile" and lastCommand.provider == "tangled")
 actions[2].props.onClick()
 assert(lastCommand.op == "profile" and lastCommand.provider == "github")
-lastPanel.children[3].props.onClick()
+assert(find("button", function(props)
+    return props.text == "Open profile activity"
+end)).props.onClick()
 assert(lastCommand.op == "profile" and lastCommand.provider == "tangled")
 local row = assert(find("column", function(props)
     return props.key == "tangled-repo-alice.test/project"
@@ -909,6 +1203,76 @@ for _, cell in ipairs({ grid.children[1].children[1], grid.children[#grid.childr
         "Absent leading/future slots must be transparent, not black zero-activity days"
     )
 end
+local tgCalendar = Data.dailyContributions(tgDaily.counts, "alice.test", 0, tgDaily.firstDate)
+tgCalendar.unit, tgCalendar.caption = "commits", "4 public commits in 2023"
+noctalia.state.set("forges.snapshot", {
+    provider = "tangled",
+    account = "alice.test",
+    view = "issues",
+    status = "ready",
+    repository = "owner/project",
+    contributions = tgCalendar,
+    versions = { contributions = 2 },
+    errors = {},
+})
+assert(wantsFrames, "Tangled calendars must be prepared rather than leaving a stale GitHub grid")
+for _ = 1, 14 do
+    onFrameTick()
+end
+assert(find("label", function(props)
+    return props.text == "4 public commits in 2023"
+end))
+assert(find("button", function(props)
+    return props.text == "Authored work"
+end)).props.onClick()
+assert(lastCommand.repository == "")
+local glPanel = {
+    provider = "gitlab",
+    account = "student",
+    base_url = "https://gitlab.com",
+    view = "notifications",
+    status = "ready",
+    contributions = normalCalendar,
+    versions = { contributions = 2 },
+    notifications = todoData.rows,
+    notification_has_more = true,
+    errors = {},
+}
+noctalia.state.set("forges.snapshot", glPanel)
+assert(wantsFrames)
+for _ = 1, 14 do
+    onFrameTick()
+end
+assert(find("label", function(props)
+    return props.text == "Review assignment"
+end))
+assert(find("label", function(props)
+    return props.text == "Submitted"
+end))
+local commandBeforeFilters = lastCommand
+assert(find("button", function(props)
+    return props.text == "Pending"
+end)).props.onClick()
+assert(find("label", function(props)
+    return props.text == "Review assignment"
+end))
+assert(not find("label", function(props)
+    return props.text == "Submitted"
+end))
+assert(find("button", function(props)
+    return props.text == "Done"
+end)).props.onClick()
+assert(find("label", function(props)
+    return props.text == "Submitted"
+end))
+assert(not find("label", function(props)
+    return props.text == "Review assignment"
+end))
+assert(lastCommand == commandBeforeFilters, "To-do filters must remain local and read-only")
+assert(find("button", function(props)
+    return props.text == "Load older to-dos"
+end)).props.onClick()
+assert(lastCommand.op == "notifications_more")
 noctalia.state.set("forges.snapshot", {
     provider = "gitlab",
     base_url = "https://gitlab.school.edu",
@@ -927,11 +1291,13 @@ end))
 assert(find("button", function(props)
     return props.text == "Merge requests"
 end))
-assert(not find("button", function(props)
-    return props.text == "Inbox"
+assert(find("button", function(props)
+    return props.text == "To-dos"
 end))
-assert(lastPanel.children[3].props.key == "gitlab-contributions")
-lastPanel.children[3].props.onClick()
+assert(lastPanel.children[3].props.key == "contribution-calendar")
+assert(find("button", function(props)
+    return props.text == "Open profile activity"
+end)).props.onClick()
 assert(lastCommand.provider == "gitlab")
 local repoInput = assert(find("input", function(props)
     return props.key == "repository-gitlab"

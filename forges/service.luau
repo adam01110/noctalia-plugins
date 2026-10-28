@@ -39,6 +39,7 @@ local function context(forge)
             contributions = resource(),
             notifications = resource(),
             work = {},
+            repositoryDetails = {},
         }
     end
     return contexts[forge]
@@ -136,7 +137,7 @@ local function invalidate(ctx)
     ctx.epoch += 1
     ctx.account, ctx.accountId, ctx.repository = "", "", ""
     ctx.repositories, ctx.contributions, ctx.notifications = resource(), resource(), resource()
-    ctx.work, ctx.scopeError = {}, nil
+    ctx.work, ctx.scopeError, ctx.repositoryDetails = {}, nil, {}
 end
 local function fresh(item)
     -- A failed request is throttled independently, and does not erase its last success.
@@ -220,14 +221,27 @@ local function request(ctx, item, argv, normalize, force, after, failed)
         if ctx.epoch ~= epoch then
             return
         end
-        local raw, error, auth = decodeResult(ctx, result)
+        local raw, error, auth
+        if argv[1] == "curl" and result.exitCode ~= 0 then
+            error = "Could not load public Tangled data. Check network access and retry."
+        elseif argv[1] == "curl" and argv[#argv]:sub(1, 20) == "https://tangled.org/" then
+            raw = { html = result.stdout }
+        else
+            raw, error, auth = decodeResult(ctx, result)
+        end
         if not raw then
             finish(nil, error, auth)
             return
         end
         local normalized, value = pcall(normalize, raw)
         if not normalized or value == nil then
-            finish(nil, "Unexpected response from forge CLI.")
+            finish(
+                nil,
+                ctx.provider == "gitlab"
+                        and item == ctx.contributions
+                        and "Contribution calendar unavailable. Requires GitLab 19.5 or newer with contributionCalendar support."
+                    or "Unexpected response from forge CLI."
+            )
             return
         end
         -- GraphQL returns viewer identity atomically with the contribution calendar.
@@ -294,13 +308,89 @@ local function request(ctx, item, argv, normalize, force, after, failed)
         finish(nil, "Could not start forge CLI.")
     end
 end
+local function resolveTangledRepositories(ctx, item, kind)
+    if item.resolving then
+        return
+    end
+    item.resolving = true
+    local rows = item.value
+    local pending, seen = {}, {}
+    for _, row in ipairs(item.value or {}) do
+        if not seen[row.repoDid] then
+            seen[row.repoDid] = true
+            table.insert(pending, row.repoDid)
+        end
+    end
+    local function nextRepository()
+        if item.value ~= rows then
+            item.resolving = false
+            resolveTangledRepositories(ctx, item, kind)
+            return
+        end
+        local did = table.remove(pending, 1)
+        if not did then
+            item.resolving = false
+            return
+        end
+        local cacheKey = kind .. ":" .. did
+        if not ctx.repositoryDetails[cacheKey] then
+            local count = 0
+            for _ in pairs(ctx.repositoryDetails) do
+                count += 1
+            end
+            if count >= 60 then
+                for key, cached in pairs(ctx.repositoryDetails) do
+                    if not cached.loading then
+                        ctx.repositoryDetails[key] = nil
+                        break
+                    end
+                end
+            end
+            ctx.repositoryDetails[cacheKey] = resource()
+        end
+        local detail = ctx.repositoryDetails[cacheKey]
+        request(
+            ctx,
+            detail,
+            Tangled.repositoryInfo(did),
+            Tangled.normalizeRepositoryInfo,
+            false,
+            function(repo)
+                if item.value ~= rows then
+                    nextRepository()
+                    return
+                end
+                for _, row in ipairs(rows or {}) do
+                    if row.repoDid == did then
+                        row.repository = repo.name
+                        row.url = repo.url .. (kind == "pulls" and "/pulls" or "/issues")
+                        row.linkLabel = kind == "pulls" and "Open repository pull requests"
+                            or "Open repository issues"
+                    end
+                end
+                sequence += 1
+                item.version = sequence
+                nextRepository()
+            end,
+            function()
+                nextRepository()
+            end
+        )
+    end
+    nextRepository()
+end
 local function notificationPage(ctx, page, force)
     local item = ctx.notifications
     if page > 10 or item.loading or (not force and fresh(item)) then
         return
     end
     local function normalize(raw)
-        local incoming = Data.notifications(raw)
+        local batch = ctx.provider == "gitlab" and GitLab.normalizeNotifications(raw, ctx.account)
+            or nil
+        if ctx.provider == "gitlab" and not batch then
+            return nil
+        end
+        local incoming = batch and batch.rows or Data.notifications(raw)
         if not incoming then
             return nil
         end
@@ -317,22 +407,62 @@ local function notificationPage(ctx, page, force)
                 seen[row.id] = true
             end
         end
-        return { rows = result, has_more = #incoming == 50 and page < 10 }
+        return {
+            rows = result,
+            has_more = page < 10
+                and (
+                    ctx.provider == "gitlab" and batch.has_more
+                    or (ctx.provider == "github" and #incoming == 50)
+                ),
+            cursor = batch and batch.cursor,
+        }
     end
     -- The resource value remains a list; pagination metadata advances only on success.
-    request(ctx, item, GitHub.notifications(page), normalize, force, function(value)
-        item.value, item.page, item.has_more = value.rows, page, value.has_more
+    local argv = ctx.provider == "gitlab"
+            and GitLab.notifications(gitlabHost, page > 1 and item.cursor or nil)
+        or GitHub.notifications(page)
+    request(ctx, item, argv, normalize, force, function(value)
+        item.value, item.page, item.has_more, item.cursor =
+            value.rows, page, value.has_more, value.cursor
     end)
 end
 local function loadView(ctx, force)
     if ctx.account == "" then
         return
     end
-    if ctx.provider == "github" then
-        request(ctx, ctx.contributions, GitHub.contributions(), function(raw)
+    if ctx.provider ~= "tangled" or noctalia.commandExists("curl") then
+        local argv = ctx.provider == "gitlab" and GitLab.contributions(gitlabHost)
+            or (
+                ctx.provider == "tangled" and Tangled.contributions(ctx.account)
+                or GitHub.contributions()
+            )
+        request(ctx, ctx.contributions, argv, function(raw)
+            if ctx.provider == "tangled" then
+                local daily = Tangled.normalizeContributions(raw, ctx.account)
+                local value = daily
+                    and Data.dailyContributions(daily.counts, daily.login, 0, daily.firstDate)
+                if value then
+                    value.caption = tostring(value.total) .. " public commits in " .. daily.year
+                    value.unit = "commits"
+                end
+                return value
+            end
+            if ctx.provider == "gitlab" then
+                local daily = GitLab.normalizeContributions(raw)
+                if not daily or daily.login ~= ctx.account then
+                    return nil
+                end
+                local value = Data.dailyContributions(daily.counts, daily.login, daily.utcOffset)
+                if not value or value.total ~= daily.total then
+                    return nil
+                end
+                return value
+            end
             local value = Data.contributions(raw)
             return value and value.login == ctx.account and value or nil
         end, force)
+    else
+        ctx.contributions.error = "Install curl to load the public Tangled commit calendar."
     end
     if ctx.view == "repositories" then
         request(
@@ -348,17 +478,17 @@ local function loadView(ctx, force)
                     ctx.provider == "gitlab" and GitLab.normalizeRepositories
                     or Tangled.normalizeRepositories
                 ),
-            force,
-            function(rows)
-                if ctx.provider ~= "github" and ctx.repository == "" then
-                    ctx.repository = rows[1] and rows[1].name or ""
-                end
-            end
+            force
         )
-    elseif ctx.view == "notifications" and ctx.provider == "github" then
+    elseif ctx.view == "notifications" and ctx.provider ~= "tangled" then
         notificationPage(ctx, 1, force)
     elseif ctx.view == "pulls" or ctx.view == "issues" then
-        if ctx.provider ~= "github" and ctx.repository == "" then
+        if
+            ctx.provider == "tangled"
+            and ctx.repository == ""
+            and not noctalia.commandExists("curl")
+        then
+            ctx.scopeError = "Install curl to load public authored work across repositories."
             publish(ctx)
             return
         end
@@ -372,17 +502,31 @@ local function loadView(ctx, force)
             entry[kind],
             ctx.provider == "github" and GitHub.work(kind, scope)
                 or (
-                    ctx.provider == "gitlab" and GitLab.work(gitlabHost, kind, scope)
-                    or Tangled.work(kind, scope, ctx.accountId)
+                    ctx.provider == "gitlab"
+                        and GitLab.work(gitlabHost, kind, scope, ctx.account)
+                    or (
+                        scope == "" and Tangled.authoredWork(kind, ctx.accountId)
+                        or Tangled.work(kind, scope, ctx.accountId)
+                    )
                 ),
             function(raw)
-                return ctx.provider == "github" and Data.work(raw)
-                    or (
-                        ctx.provider == "gitlab" and GitLab.normalizeWork(raw, scope)
-                        or Tangled.normalizeWork(raw, scope, kind)
-                    )
+                if ctx.provider == "github" then
+                    return Data.work(raw)
+                end
+                if ctx.provider == "gitlab" then
+                    return GitLab.normalizeWork(raw, scope, ctx.account)
+                end
+                if scope == "" then
+                    return Tangled.normalizeAuthoredWork(raw, ctx.accountId, ctx.account, kind)
+                end
+                return Tangled.normalizeWork(raw, scope, kind)
             end,
-            force
+            force,
+            function()
+                if ctx.provider == "tangled" and scope == "" then
+                    resolveTangledRepositories(ctx, entry[kind], kind)
+                end
+            end
         )
     end
     publish(ctx)
@@ -501,9 +645,6 @@ local function command(value)
     else
         local ctx = context(provider)
         if value.op == "repository" then
-            if value.repository == "" and provider ~= "github" then
-                return
-            end
             if
                 value.repository ~= ""
                 and not (
@@ -522,7 +663,7 @@ local function command(value)
                 or value.view == "pulls"
                 or value.view == "issues"
                 or (
-                    provider == "github"
+                    provider ~= "tangled"
                     and (value.view == "overview" or value.view == "notifications")
                 )
             if not allowed then
@@ -533,7 +674,7 @@ local function command(value)
             ensureView(ctx, false)
         elseif
             value.op == "notifications_more"
-            and provider == "github"
+            and provider ~= "tangled"
             and ctx.notifications.has_more
         then
             notificationPage(ctx, (ctx.notifications.page or 0) + 1, true)

@@ -85,4 +85,155 @@ function Tangled.normalizeWork(raw, repository, kind)
     end
     return out
 end
+local function publicGet(url)
+    return {
+        "curl",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "20",
+        "--max-filesize",
+        "1048576",
+        "--proto",
+        "=https",
+        "--",
+        url,
+    }
+end
+function Tangled.contributions(account)
+    return publicGet("https://tangled.org/" .. account)
+end
+function Tangled.normalizeContributions(raw, login)
+    if type(raw.html) ~= "string" or #raw.html > 1048576 then
+        return nil
+    end
+    local start, cursor = raw.html:find("<div%s+data%-punchcard[%s>]")
+    if not start then
+        return nil
+    end
+    local depth, finish = 1, nil
+    while depth > 0 do
+        local tagStart, tagEnd, closing = raw.html:find("<(/?)div[%s>]", cursor + 1)
+        if not tagStart then
+            return nil
+        end
+        depth = depth + (closing == "/" and -1 or 1)
+        cursor, finish = tagEnd, tagEnd
+    end
+    local counts, n, year = {}, 0, nil
+    for date, count in
+        raw.html:sub(start, finish):gmatch('title="(%d%d%d%d%-%d%d%-%d%d): (%d+) commits?"')
+    do
+        if counts[date] or (year and year ~= date:sub(1, 4)) then
+            return nil
+        end
+        year = date:sub(1, 4)
+        counts[date], n = tonumber(count), n + 1
+    end
+    local today = os.date("!%Y-%m-%d", os.time())
+    if (n ~= 365 and n ~= 366) or year ~= today:sub(1, 4) then
+        return nil
+    end
+    local first = os.time({ year = tonumber(year), month = 1, day = 1, hour = 0 })
+    local last = os.time({ year = tonumber(year) + 1, month = 1, day = 1, hour = 0 }) - 86400
+    local expected = 0
+    for timestamp = first, last, 86400 do
+        if counts[os.date("!%Y-%m-%d", timestamp)] == nil then
+            return nil
+        end
+        expected += 1
+    end
+    if n ~= expected then
+        return nil
+    end
+    return { counts = counts, login = login, firstDate = year .. "-01-01", year = year }
+end
+local function encode(value)
+    return value:gsub("[^%w%-_%.~]", function(char)
+        return string.format("%%%02X", string.byte(char))
+    end)
+end
+function Tangled.authoredWork(kind, account)
+    return publicGet(
+        "https://api.tangled.org/xrpc/sh.tangled.repo."
+            .. (kind == "pulls" and "listPullsBy" or "listIssuesBy")
+            .. "?subject="
+            .. encode(account)
+            .. "&limit=100&order=desc"
+    )
+end
+function Tangled.repositoryInfo(repoDid)
+    return publicGet(
+        "https://api.tangled.org/xrpc/sh.tangled.repo.getRepoByRepoDid?repoDid=" .. encode(repoDid)
+    )
+end
+function Tangled.normalizeRepositoryInfo(raw)
+    if type(raw.uri) ~= "string" then
+        return nil
+    end
+    local owner, name = raw.uri:match("^at://([^/]+)/sh%.tangled%.repo/([^/]+)$")
+    if
+        not owner
+        or not name
+        or not owner:match("^did:[%w:%.%-]+$")
+        or not name:match("^[%w_%.%-]+$")
+        or name == "."
+        or name == ".."
+    then
+        return nil
+    end
+    return { name = owner .. "/" .. name, url = "https://tangled.org/" .. owner .. "/" .. name }
+end
+function Tangled.normalizeAuthoredWork(raw, account, login, kind)
+    if type(raw.items) ~= "table" or #raw.items > 100 then
+        return nil
+    end
+    local out = {}
+    for _, item in ipairs(raw.items) do
+        if type(item.uri) ~= "string" then
+            return nil
+        end
+        local author, collection, key = item.uri:match("^at://([^/]+)/([^/]+)/([^/]+)$")
+        local value = item.value
+        if
+            author ~= account
+            or collection ~= (kind == "pulls" and "sh.tangled.repo.pull" or "sh.tangled.repo.issue")
+            or type(value) ~= "table"
+        then
+            return nil
+        end
+        local repo = value.repo
+        if kind == "pulls" then
+            repo = type(value.target) == "table" and value.target.repo or nil
+        end
+        if
+            type(repo) ~= "string"
+            or not repo:match("^did:[%w:%.%-]+$")
+            or (
+                item.state ~= "open"
+                and item.state ~= "closed"
+                and not (kind == "pulls" and item.state == "merged")
+            )
+        then
+            return nil
+        end
+        -- Bobbin's author views can ignore state filters; inspect the newest 100 records locally.
+        if item.state == "open" and #out < 30 then
+            table.insert(out, {
+                id = key,
+                uri = item.uri,
+                title = value.title or "",
+                repository = repo,
+                repoDid = repo,
+                author = login,
+                state = item.state,
+                updatedAt = item.stateUpdatedAt or value.createdAt or "",
+                url = "https://tangled.org/" .. login,
+                linkLabel = "Open author profile (repository unavailable)",
+            })
+        end
+    end
+    return out
+end
 return Tangled
