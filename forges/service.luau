@@ -233,13 +233,14 @@ local function request(ctx, item, argv, normalize, force, after, failed)
             finish(nil, error, auth)
             return
         end
-        local normalized, value = pcall(normalize, raw)
+        local normalized, value, normalizationError = pcall(normalize, raw)
         if not normalized or value == nil then
             finish(
                 nil,
                 ctx.provider == "gitlab"
                         and item == ctx.contributions
                         and "Contribution calendar unavailable. Requires GitLab 19.5 or newer with contributionCalendar support."
+                    or (normalized and normalizationError or nil)
                     or "Unexpected response from forge CLI."
             )
             return
@@ -438,7 +439,10 @@ local function loadView(ctx, force)
             )
         request(ctx, ctx.contributions, argv, function(raw)
             if ctx.provider == "tangled" then
-                local daily = Tangled.normalizeContributions(raw, ctx.account)
+                local daily, error = Tangled.normalizeContributions(raw, ctx.account)
+                if not daily then
+                    return nil, error
+                end
                 local value = daily
                     and Data.dailyContributions(daily.counts, daily.login, 0, daily.firstDate)
                 if value then

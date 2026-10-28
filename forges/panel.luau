@@ -166,6 +166,7 @@ local function workRow(item)
         }
     )
 end
+local calendars = {}
 local calendar = { columns = {}, nextWeek = 1 }
 local selectedDay
 local COLORS = { "surface_variant", "primary/0.25", "primary/0.45", "primary/0.7", "primary" }
@@ -175,19 +176,31 @@ local function prepareCalendar()
         return nil
     end
     local scale = math.clamp(finite(noctalia.getSetting("shell.corner_radius_scale"), 1), 0, 2)
-    local key = snapshot.provider
+    local identity = snapshot.provider
         .. ":"
         .. (snapshot.base_url or "")
         .. ":"
         .. (snapshot.account or "")
+    local key = identity
         .. ":"
         .. tostring((snapshot.versions or {}).contributions or 0)
         .. ":"
         .. tostring(scale)
-    if calendar.key ~= key then
-        calendar = { key = key, data = data, columns = {}, nextWeek = 1, scale = scale }
-        selectedDay = nil
+    local cached = calendars[snapshot.provider]
+    if not cached or cached.key ~= key then
+        cached = {
+            key = key,
+            identity = identity,
+            data = data,
+            columns = {},
+            nextWeek = 1,
+            scale = scale,
+            previousNode = cached and cached.identity == identity and cached.node or nil,
+        }
+        calendars[snapshot.provider] = cached
     end
+    calendar = cached
+    selectedDay = calendar.selectedDay
     panel.setNeedsFrameTick(calendar.node == nil)
     return data
 end
@@ -236,7 +249,7 @@ local function contributionSection()
             fontSize = 16,
             fontWeight = "semibold",
         }),
-        calendar.node or ui.column(
+        calendar.node or calendar.previousNode or ui.column(
             { height = 61, justify = "center" },
             { label("Preparing contribution graph…") }
         ),
@@ -289,6 +302,7 @@ function onFrameTick()
                             .. (calendar.data.unit or "contributions"),
                         onClick = function()
                             selectedDay = value
+                            calendar.selectedDay = value
                             render()
                         end,
                     })
@@ -322,6 +336,7 @@ render = function()
         tab = "repositories"
     end
     if not snapshot.contributions then
+        calendars[snapshot.provider] = nil
         calendar = { columns = {}, nextWeek = 1 }
         panel.setNeedsFrameTick(false)
     end

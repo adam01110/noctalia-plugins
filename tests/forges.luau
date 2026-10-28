@@ -407,6 +407,15 @@ local function tangledHtml()
     return table.concat(parts)
 end
 local tgHtml = tangledHtml()
+local reorderedHtml =
+    tgHtml:gsub('<div data%-punchcard class="grid">', '<div class="grid" data-punchcard="">', 1)
+assert(
+    Tangled.normalizeContributions({ html = reorderedHtml }, "alice.test"),
+    "Accept valued punchcard attributes after other attributes"
+)
+local absent, absentError =
+    Tangled.normalizeContributions({ html = "<html>Moved</html>" }, "alice.test")
+assert(not absent and absentError:find("no public commit punchcard", 1, true))
 local tgDaily = assert(Tangled.normalizeContributions({ html = tgHtml }, "alice.test"))
 assert(tgDaily.counts[today] == 4, "Ignore matching titles outside the punchcard grid")
 assert(Tangled.normalizeContributions({ html = "<div data-punchcard></div>" }, "alice.test") == nil)
@@ -1226,6 +1235,10 @@ assert(find("button", function(props)
     return props.text == "Authored work"
 end)).props.onClick()
 assert(lastCommand.repository == "")
+local retainedTangledSnapshot = copy(values["forges.snapshot"])
+local retainedTangledGrid = assert(find("row", function(props)
+    return props.key == "contribution-grid"
+end))
 local glPanel = {
     provider = "gitlab",
     account = "student",
@@ -1273,6 +1286,43 @@ assert(find("button", function(props)
     return props.text == "Load older to-dos"
 end)).props.onClick()
 assert(lastCommand.op == "notifications_more")
+local retainedGitLabGrid = assert(find("row", function(props)
+    return props.key == "contribution-grid"
+end))
+local retainedSnapshot = copy(values["forges.snapshot"])
+noctalia.state.set("forges.snapshot", graphSnapshot)
+for _ = 1, 14 do
+    onFrameTick()
+end
+local retainedGitHubGrid = assert(find("row", function(props)
+    return props.key == "contribution-grid"
+end))
+noctalia.state.set("forges.snapshot", retainedSnapshot)
+assert(not wantsFrames, "Returning to GitLab must reuse its prepared graph immediately")
+assert(find("row", function(props)
+    return props.key == "contribution-grid"
+end) == retainedGitLabGrid)
+onClose()
+onOpen()
+assert(not wantsFrames and find("row", function(props)
+    return props.key == "contribution-grid"
+end) == retainedGitLabGrid)
+noctalia.state.set("forges.snapshot", graphSnapshot)
+assert(not wantsFrames and find("row", function(props)
+    return props.key == "contribution-grid"
+end) == retainedGitHubGrid)
+noctalia.state.set("forges.snapshot", retainedTangledSnapshot)
+assert(not wantsFrames and find("row", function(props)
+    return props.key == "contribution-grid"
+end) == retainedTangledGrid, "Tangled must also retain its prepared graph across forge switches")
+noctalia.state.set("forges.snapshot", graphSnapshot)
+local anotherAccount = copy(graphSnapshot)
+anotherAccount.account = "another-account"
+noctalia.state.set("forges.snapshot", anotherAccount)
+assert(wantsFrames and not find("row", function(props)
+    return props.key == "contribution-grid"
+end), "Never retain another account's graph during preparation")
+
 noctalia.state.set("forges.snapshot", {
     provider = "gitlab",
     base_url = "https://gitlab.school.edu",

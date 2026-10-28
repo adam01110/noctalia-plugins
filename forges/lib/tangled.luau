@@ -91,6 +91,11 @@ local function publicGet(url)
         "--fail",
         "--silent",
         "--show-error",
+        "--location",
+        "--max-redirs",
+        "3",
+        "--proto-redir",
+        "=https",
         "--max-time",
         "20",
         "--max-filesize",
@@ -108,9 +113,13 @@ function Tangled.normalizeContributions(raw, login)
     if type(raw.html) ~= "string" or #raw.html > 1048576 then
         return nil
     end
-    local start, cursor = raw.html:find("<div%s+data%-punchcard[%s>]")
+    local start, cursor = raw.html:find("<div%s[^>]*%sdata%-punchcard[%s=>]")
     if not start then
-        return nil
+        start, cursor = raw.html:find("<div%s+data%-punchcard[%s=>]")
+    end
+    if not start then
+        return nil,
+            "Tangled returned no public commit punchcard. Open profile activity to check availability."
     end
     local depth, finish = 1, nil
     while depth > 0 do
@@ -133,7 +142,7 @@ function Tangled.normalizeContributions(raw, login)
     end
     local today = os.date("!%Y-%m-%d", os.time())
     if (n ~= 365 and n ~= 366) or year ~= today:sub(1, 4) then
-        return nil
+        return nil, "Tangled returned an incomplete or unsupported public commit calendar."
     end
     local first = os.time({ year = tonumber(year), month = 1, day = 1, hour = 0 })
     local last = os.time({ year = tonumber(year) + 1, month = 1, day = 1, hour = 0 }) - 86400

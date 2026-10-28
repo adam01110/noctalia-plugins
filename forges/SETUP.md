@@ -52,8 +52,12 @@ All forges open on Repositories with no repository scope selected. Inspecting a
 repository switches to its work; All work (GitHub/GitLab) or Authored work
 (Tangled) returns to the cross-repository scope. GitHub's full-year contribution
 calendar stays directly below the forge selector, above every queue, with
-today/current/best-streak metrics. Graph construction is staged and reused across
-renders. Day tooltips and clicks show the date and contribution count; missing
+today/current/best-streak metrics. Graph construction is staged and cached
+separately for each forge. Switching
+forges or reopening the panel reuses the prepared graphs, without another fetch
+while their data is fresh. Expired data revalidates on the configured interval,
+and Refresh explicitly reloads it; the previous graph stays visible meanwhile.
+Day tooltips and clicks show the date and contribution count; missing
 and future slots remain transparent rather than inheriting a black box fill.
 Tangled shows its current-year **public commit** punchcard in the same position.
 It is parsed from the public profile's HTML because `tg` and Bobbin expose no
