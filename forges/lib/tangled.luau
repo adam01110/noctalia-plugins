@@ -111,6 +111,96 @@ local function encode(value)
         return string.format("%%%02X", string.byte(char))
     end)
 end
+function Tangled.contributions(account)
+    return publicGet(
+        "https://api.tangled.org/xrpc/org.tangled.actor.getProfileActivity?actor="
+            .. encode(account)
+            .. "&months=12"
+    )
+end
+function Tangled.normalizeContributions(raw, login)
+    if type(raw.months) ~= "table" or #raw.months > 12 or type(raw.truncated) ~= "boolean" then
+        return nil, "Invalid Tangled monthly activity response."
+    end
+    -- Truncation limits the issue/pull/repository lists, not the independent commit totals.
+    local today = os.date("!*t", os.time())
+    local current = today.year * 12 + today.month - 1
+    local counts, entries = {}, 0
+    for key, month in pairs(raw.months) do
+        entries += 1
+        if
+            entries > 12
+            or type(key) ~= "number"
+            or key % 1 ~= 0
+            or key < 1
+            or key > #raw.months
+            or type(month) ~= "table"
+            or type(month.start) ~= "string"
+            or #month.start > 40
+        then
+            return nil, "Invalid Tangled monthly activity response."
+        end
+        local year, number, suffix = month.start:match("^(%d%d%d%d)%-(%d%d)%-01T00:00:00(.*)$")
+        year, number = tonumber(year), tonumber(number)
+        if
+            not year
+            or not number
+            or number < 1
+            or number > 12
+            or (suffix ~= "Z" and not suffix:match("^%.%d+Z$"))
+        then
+            return nil, "Invalid Tangled activity month."
+        end
+        local ordinal, n = year * 12 + number - 1, month.commits
+        if
+            ordinal < current - 11
+            or ordinal > current
+            or counts[ordinal] ~= nil
+            or type(n) ~= "number"
+            or n ~= n
+            or n < 0
+            or n % 1 ~= 0
+            or n > 1000000000
+        then
+            return nil, "Invalid Tangled monthly commit count."
+        end
+        counts[ordinal] = n
+    end
+    if entries ~= #raw.months then
+        return nil, "Invalid Tangled monthly activity response."
+    end
+    local months, total, peak = {}, 0, 0
+    -- The API omits months with no activity; restore those zero-count UTC months.
+    for ordinal = current - 11, current do
+        local year, number = math.floor(ordinal / 12), ordinal % 12 + 1
+        local date = string.format("%04d-%02d", year, number)
+        local n = counts[ordinal] or 0
+        table.insert(
+            months,
+            {
+                date = date,
+                count = n,
+                label = os.date("!%b", os.time({ year = year, month = number, day = 1, hour = 0 })),
+            }
+        )
+        total += n
+        peak = math.max(peak, n)
+    end
+    if total > 1000000000 then
+        return nil, "Invalid Tangled monthly commit total."
+    end
+    return {
+        granularity = "month",
+        login = login,
+        months = months,
+        total = total,
+        peak = peak,
+        firstDate = months[1].date,
+        lastDate = months[12].date,
+        unit = "commits",
+        caption = tostring(total) .. " public commits · last 12 months",
+    }
+end
 function Tangled.authoredWork(kind, account)
     return publicGet(
         "https://api.tangled.org/xrpc/sh.tangled.repo."

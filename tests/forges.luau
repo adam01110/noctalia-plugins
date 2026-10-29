@@ -395,6 +395,64 @@ assert(
 local timezoneStreak = Data.dailyContributions({ ["2024-01-01"] = 3 }, "student", 3600)
 assert(timezoneStreak.today == 0 and timezoneStreak.currentStreak == 1)
 clock = savedClock
+local tgActivity = {
+    months = { { start = today:sub(1, 7) .. "-01T00:00:00.000000Z", commits = 4 } },
+    truncated = false,
+}
+local tgMonthly = assert(Tangled.normalizeContributions(tgActivity, "alice.test"))
+assert(
+    tgMonthly.granularity == "month"
+        and #tgMonthly.months == 12
+        and tgMonthly.total == 4
+        and tgMonthly.peak == 4
+)
+assert(tgMonthly.months[12].date == today:sub(1, 7) and tgMonthly.months[12].count == 4)
+assert(
+    tgMonthly.months[1].count == 0
+        and not tgMonthly.weeks
+        and not tgMonthly.today
+        and not tgMonthly.currentStreak
+)
+assert(Tangled.normalizeContributions({ months = {}, truncated = false }, "alice.test").total == 0)
+assert(Tangled.normalizeContributions({ months = {}, truncated = true }, "alice.test").total == 0)
+assert(Tangled.normalizeContributions({ months = {} }, "alice.test") == nil)
+for _, n in ipairs({ -1, 0.5, math.huge, 0 / 0, "4", 1000000001 }) do
+    local invalid = copy(tgActivity)
+    invalid.months[1].commits = n
+    assert(Tangled.normalizeContributions(invalid, "alice.test") == nil)
+end
+for _, start in ipairs({
+    "2023-13-01T00:00:00Z",
+    "9999-01-01T00:00:00Z",
+    today:sub(1, 7) .. "-02T00:00:00Z",
+    today:sub(1, 7) .. "-01T00:00:00+00:00",
+}) do
+    local invalid = copy(tgActivity)
+    invalid.months[1].start = start
+    assert(Tangled.normalizeContributions(invalid, "alice.test") == nil)
+end
+local truncatedLists = copy(tgActivity)
+truncatedLists.truncated = true
+assert(Tangled.normalizeContributions(truncatedLists, "alice.test").total == 4)
+local unorderedMonths = copy(tgActivity)
+table.insert(
+    unorderedMonths.months,
+    { start = tgMonthly.months[11].date .. "-01T00:00:00Z", commits = 2 }
+)
+local orderedMonths = assert(Tangled.normalizeContributions(unorderedMonths, "alice.test"))
+assert(
+    orderedMonths.total == 6
+        and orderedMonths.months[11].count == 2
+        and orderedMonths.months[12].count == 4
+)
+local duplicateMonths = copy(tgActivity)
+table.insert(duplicateMonths.months, copy(duplicateMonths.months[1]))
+assert(Tangled.normalizeContributions(duplicateMonths, "alice.test") == nil)
+local monthArgv = Tangled.contributions("did:plc:alice")
+assert(
+    monthArgv[#monthArgv]
+        == "https://api.tangled.org/xrpc/org.tangled.actor.getProfileActivity?actor=did%3Aplc%3Aalice&months=12"
+)
 local tgDid = "did:plc:alice"
 local tgAuthored = {
     items = {
@@ -476,11 +534,12 @@ assert(calls == cachedCalls, "GitLab calendars, inbox and global work retain ind
 boot({}, true)
 service()
 respond({ authenticated = true, handle = "alice.test", did = tgDid })
-assert(#queue == 1 and queue[1].argv[1] == "tg")
+assert(#queue == 2 and queue[1].argv[1] == "curl")
+respond(tgActivity)
 respond(tgRepo)
 assert(
-    not snapshot().contributions
-        and snapshot().capabilities.contributions == false
+    snapshot().contributions.total == 4
+        and snapshot().capabilities.contributions == true
         and snapshot().repository == ""
 )
 send({ op = "view", view = "issues" })
@@ -504,12 +563,14 @@ assert(
 send({ op = "view", view = "issues" })
 send({ op = "refresh" })
 respond({ authenticated = true, handle = "alice.test", did = tgDid })
+respond(tgActivity)
 local nextWork = copy(tgAuthored)
 nextWork.items[1].value.repo = "did:plc:second"
 respond(nextWork)
 local pendingDetail = assert(table.remove(queue, 1))
 send({ op = "refresh" })
 respond({ authenticated = true, handle = "alice.test", did = tgDid })
+respond(tgActivity)
 nextWork.items[1].value.title = "Updated during resolution"
 respond(nextWork)
 pendingDetail.callback({
@@ -567,13 +628,15 @@ boot({}, true)
 service()
 respond({ authenticated = true, handle = "alice.test", did = tgDid })
 assert(
-    #queue == 1 and queue[1].argv[1] == "tg",
-    "Tangled must request repositories, never profile HTML"
+    #queue == 2
+        and queue[1].argv[#queue[1].argv]:find("org.tangled.actor.getProfileActivity", 1, true),
+    "Tangled must use structured monthly activity, never profile HTML"
 )
+respond(tgActivity)
 respond(tgRepo)
-assert(snapshot().status == "ready" and snapshot().capabilities.contributions == false)
+assert(snapshot().status == "ready" and snapshot().capabilities.contributions == true)
 assert(
-    not snapshot().contributions
+    snapshot().contributions.total == 4
         and not snapshot().errors.contributions
         and not snapshot().loading.contributions
 )
@@ -595,9 +658,32 @@ assert(
 )
 send({ op = "refresh" })
 respond({ authenticated = true, handle = "alice.test", did = tgDid })
+respond(tgActivity)
 assert(#queue == 1 and queue[1].argv[#queue[1].argv]:find("listIssuesBy", 1, true))
 respond({ items = {} })
 assert(snapshot().status == "ready" and #snapshot().issues == 0 and #queue == 0)
+local monthlyVersion = snapshot().versions.contributions
+send({ op = "refresh" })
+respond({ authenticated = true, handle = "alice.test", did = tgDid })
+respond(nil, 22)
+respond({ items = {} })
+assert(
+    snapshot().contributions.total == 4
+        and snapshot().versions.contributions == monthlyVersion
+        and snapshot().errors.contributions,
+    "Failed calendar refresh must retain the previous valid monthly data"
+)
+send({ op = "refresh" })
+respond({ authenticated = true, handle = "alice.test", did = tgDid })
+local lateMonthly = assert(table.remove(queue, 1))
+respond({ items = {} })
+send({ op = "refresh" })
+respond({ authenticated = false })
+lateMonthly.callback({ exitCode = 0, stdout = tgActivity })
+assert(
+    snapshot().account == "" and not snapshot().contributions,
+    "Reject monthly responses after logout"
+)
 print(
     "Forges parity: daily calendars/timezones, public Tangled authored work and repository links, GitLab role unions and paginated read-only to-dos passed"
 )
@@ -971,6 +1057,7 @@ boot()
 panelRenders = 0
 values["forges.snapshot"] = {
     provider = "tangled",
+    capabilities = { contributions = true },
     account = "alice.test",
     status = "ready",
     repository = "alice.test/project",
@@ -995,8 +1082,8 @@ assert(
 )
 assert(
     lastPanel.children[2].props.key == "provider-switch"
-        and lastPanel.children[3].props.key == "external-activity",
-    "Tangled activity is a compact profile action, not an unavailable calendar"
+        and lastPanel.children[3].props.key == "contribution-calendar",
+    "Tangled graph failures must keep their own profile fallback above the work queue"
 )
 actions[1].props.onClick()
 assert(lastCommand.op == "profile" and lastCommand.provider == "tangled")
@@ -1285,6 +1372,56 @@ assert(find("button", function(props)
     return props.text == "Authored work"
 end)).props.onClick()
 assert(lastCommand.repository == "")
+local monthlySnapshot = {
+    provider = "tangled",
+    account = "alice.test",
+    status = "ready",
+    view = "issues",
+    capabilities = { contributions = true },
+    contributions = tgMonthly,
+    versions = { contributions = 3 },
+    errors = {},
+}
+noctalia.state.set("forges.snapshot", monthlySnapshot)
+local monthlyNode = assert(find("graph", function(props)
+    return props.key == "monthly-contribution-graph"
+end))
+assert(
+    #monthlyNode.props.values == 12
+        and monthlyNode.props.values[12] == 1
+        and monthlyNode.props.values[1] == 0
+)
+assert(not wantsFrames and find("column", function(props)
+    return props.key == "monthly-contributions"
+end))
+assert(not find("label", function(props)
+    return props.text:find("Current streak", 1, true) ~= nil
+end), "Monthly counts must never imply daily streaks")
+onMonthlyGraphMove("1.0000")
+assert(find("label", function(props)
+    return props.text == today:sub(1, 7) .. " · 4 commits"
+end))
+onMonthlyGraphLeave()
+assert(find("label", function(props)
+    return props.text == tgMonthly.firstDate .. " — " .. tgMonthly.lastDate
+end))
+monthlySnapshot.loading = { contributions = true }
+monthlySnapshot.errors.contributions = "Temporary network failure"
+noctalia.state.set("forges.snapshot", monthlySnapshot)
+assert(find("graph", function(props)
+    return props.key == "monthly-contribution-graph"
+end) == monthlyNode)
+assert(find("label", function(props)
+    return props.text == "Temporary network failure"
+end))
+monthlySnapshot.errors = {}
+monthlySnapshot.loading = {}
+noctalia.state.set("forges.snapshot", monthlySnapshot)
+onClose()
+onOpen()
+assert(not wantsFrames and find("graph", function(props)
+    return props.key == "monthly-contribution-graph"
+end) == monthlyNode)
 local retainedTangledSnapshot = copy(values["forges.snapshot"])
 local glPanel = {
     provider = "gitlab",
@@ -1361,10 +1498,10 @@ end) == retainedGitHubGrid)
 noctalia.state.set("forges.snapshot", retainedTangledSnapshot)
 assert(not wantsFrames and not find("row", function(props)
     return props.key == "contribution-grid"
-end), "Tangled must never inherit another provider's retained calendar")
-assert(find("row", function(props)
-    return props.key == "external-activity"
-end))
+end), "Tangled must never inherit another provider's daily calendar")
+assert(find("graph", function(props)
+    return props.key == "monthly-contribution-graph"
+end) == monthlyNode, "Returning from GitHub/GitLab must reuse Tangled's prepared monthly graph")
 noctalia.state.set("forges.snapshot", graphSnapshot)
 local anotherAccount = copy(graphSnapshot)
 anotherAccount.account = "another-account"

@@ -59,13 +59,20 @@ while their data is fresh. Expired data revalidates on the configured interval,
 and Refresh explicitly reloads it; the previous graph stays visible meanwhile.
 Day tooltips and clicks show the date and contribution count; missing
 and future slots remain transparent rather than inheriting a black box fill.
-Tangled uses a compact **Open profile activity** action instead of a calendar.
-Its public profile HTML is not a data API; the plugin no longer downloads or
-parses it. No supported public contribution-calendar endpoint has been verified
-for the new appview. The plugin does not infer commit counts or streaks from
-partial repository or authored-work results. This is an unsupported capability,
-not an account, network, or loading error. GitHub/GitLab retain their API-backed
-calendars and per-account prepared-graph caches.
+Tangled shows an API-backed **monthly public commit graph** for the last 12 UTC
+calendar months, including the current partial month. It uses the deployed
+`org.tangled.actor.getProfileActivity` endpoint with the authenticated account's
+DID. The API omits inactive months; the graph restores those as zero. Hover the
+native chart or month labels to inspect totals. Daily counts and daily streaks
+are not available from this API and are not inferred from monthly totals.
+Its prepared chart is cached per account, survives provider switches and panel
+reopening, and retains its last successful data during refresh failures.
+No profile HTML is downloaded or parsed. Failed requests offer **Open profile
+activity** without blocking work queues. GitHub/GitLab retain their daily graphs.
+
+The monthly graph uses the new `org.tangled.*` API. The authored-work integration
+below still uses legacy `sh.tangled.*` methods; migrating those queries is separate
+from this graph change.
 
 Tangled's Authored work uses Bobbin's public `listIssuesBy`/`listPullsBy` endpoints,
 not a scan of your repositories. It inspects the newest 100 authored records,

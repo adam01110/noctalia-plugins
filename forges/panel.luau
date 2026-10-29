@@ -178,7 +178,13 @@ local function supportsContributions()
 end
 local function prepareCalendar()
     local data = snapshot.contributions
-    if type(data) ~= "table" or type(data.weeks) ~= "table" then
+    if
+        type(data) ~= "table"
+        or (
+            type(data.weeks) ~= "table"
+            and not (data.granularity == "month" and type(data.months) == "table")
+        )
+    then
         return nil
     end
     local scale = math.clamp(finite(noctalia.getSetting("shell.corner_radius_scale"), 1), 0, 2)
@@ -191,6 +197,8 @@ local function prepareCalendar()
         .. ":"
         .. tostring((snapshot.versions or {}).contributions or 0)
         .. ":"
+        .. (data.granularity or "day")
+        .. ":"
         .. tostring(scale)
     local cached = calendars[snapshot.provider]
     if not cached or cached.key ~= key then
@@ -201,14 +209,87 @@ local function prepareCalendar()
             columns = {},
             nextWeek = 1,
             scale = scale,
-            previousNode = cached and cached.identity == identity and cached.node or nil,
+            previousNode = cached
+                    and cached.identity == identity
+                    and cached.data.granularity == data.granularity
+                    and cached.node
+                or nil,
         }
+        if data.granularity == "month" then
+            local values = {}
+            for _, month in ipairs(data.months) do
+                table.insert(values, data.peak > 0 and month.count / data.peak or 0)
+            end
+            cached.node = ui.graph({
+                key = "monthly-contribution-graph",
+                height = 76,
+                values = values,
+                color = "primary",
+                lineWidth = 2,
+                fillOpacity = 0.14,
+                onPointerMove = "onMonthlyGraphMove",
+                onPointerLeave = "onMonthlyGraphLeave",
+            })
+        end
         calendars[snapshot.provider] = cached
     end
     calendar = cached
     selectedDay = calendar.selectedDay
     panel.setNeedsFrameTick(calendar.node == nil)
     return data
+end
+function onMonthlyGraphMove(normX)
+    if not opened or not calendar.data or calendar.data.granularity ~= "month" then
+        return
+    end
+    local index = math.clamp(
+        math.floor(finite(tonumber(normX), 0) * (#calendar.data.months - 1) + 0.5) + 1,
+        1,
+        #calendar.data.months
+    )
+    if calendar.selectedMonth ~= index then
+        calendar.selectedMonth = index
+        render()
+    end
+end
+function onMonthlyGraphLeave()
+    if calendar.selectedMonth then
+        calendar.selectedMonth = nil
+        if opened then
+            render()
+        end
+    end
+end
+local function monthlySection(data)
+    local labels = {}
+    for _, month in ipairs(data.months) do
+        table.insert(
+            labels,
+            ui.label({
+                text = month.label,
+                fontSize = 10,
+                flexGrow = 1,
+                textAlign = "center",
+                tooltip = month.date .. " · " .. tostring(month.count) .. " commits",
+            })
+        )
+    end
+    local month = calendar.selectedMonth and data.months[calendar.selectedMonth]
+    local children = {
+        ui.label({ text = data.caption, fontSize = 16, fontWeight = "semibold" }),
+        calendar.node,
+        ui.row({ gap = 2 }, labels),
+        label(
+            month and (month.date .. " · " .. tostring(month.count) .. " commits")
+                or (data.firstDate .. " — " .. data.lastDate),
+            11
+        ),
+        label("Monthly totals · UTC · current month partial", 11),
+    }
+    if (snapshot.errors or {}).contributions then
+        table.insert(children, label(snapshot.errors.contributions, 11, "error"))
+    end
+    return ui.column({ key = "monthly-contributions", gap = 6 }, children)
 end
 local function contributionSection()
     if not supportsContributions() then
@@ -246,6 +327,9 @@ local function contributionSection()
                 end,
             }),
         })
+    end
+    if data.granularity == "month" then
+        return monthlySection(data)
     end
     local legend = { label("Less", 10) }
     for index, color in ipairs(COLORS) do

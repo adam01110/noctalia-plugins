@@ -114,7 +114,7 @@ local function publish(ctx)
     noctalia.state.set("forges.snapshot", {
         provider = ctx.provider,
         base_url = ctx.provider == "gitlab" and gitlabUrl or nil,
-        capabilities = { contributions = ctx.provider ~= "tangled" },
+        capabilities = { contributions = true },
         account = ctx.account,
         repository = ctx.repository,
         view = ctx.view,
@@ -430,7 +430,15 @@ local function loadView(ctx, force)
     if ctx.account == "" then
         return
     end
-    if ctx.provider ~= "tangled" then
+    if ctx.provider == "tangled" then
+        if noctalia.commandExists("curl") then
+            request(ctx, ctx.contributions, Tangled.contributions(ctx.accountId), function(raw)
+                return Tangled.normalizeContributions(raw, ctx.account)
+            end, force)
+        else
+            ctx.contributions.error = "Install curl to load Tangled monthly contributions."
+        end
+    else
         local argv = ctx.provider == "gitlab" and GitLab.contributions(gitlabHost)
             or GitHub.contributions()
         request(ctx, ctx.contributions, argv, function(raw)
