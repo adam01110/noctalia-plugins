@@ -34,7 +34,6 @@ end
 local config, settings, values, watches, queue, exists, failStart, missingCommands
 local calls, lastPanel, panelRenders, lastCommand, lastLaunch, glyph, tooltip, toggled, wantsFrames
 local nodeCreations = 0
-local calendarEvents = {}
 local noctalia = {
     nowMs = function()
         return 100
@@ -70,13 +69,7 @@ local noctalia = {
                 lastCommand = value
             end
             for _, watcher in ipairs(watches[key] or {}) do
-                if key == "forges.calendar_step" then
-                    table.insert(calendarEvents, function()
-                        watcher(copy(value))
-                    end)
-                else
-                    watcher(copy(value))
-                end
+                watcher(copy(value))
             end
         end,
         watch = function(key, callback)
@@ -86,6 +79,12 @@ local noctalia = {
     },
     runAsync = function(argv, callback)
         calls += 1
+        if argv[1] == "curl" then
+            assert(
+                argv[#argv]:sub(1, 29) == "https://api.tangled.org/xrpc/",
+                "Only structured public Tangled API requests are allowed"
+            )
+        end
         if not callback then
             lastLaunch = argv
             return true
@@ -105,7 +104,6 @@ local function boot(options, publicData)
     settings, values, watches, queue, missingCommands = {}, {}, {}, {}, {}
     exists, failStart, calls = true, false, 0
     missingCommands.curl = not publicData
-    calendarEvents = {}
 end
 local function service()
     -- SERVICE_SOURCE
@@ -116,25 +114,13 @@ end
 local function send(value)
     noctalia.state.set("forges.command", value)
 end
-local function drainCalendar(limit)
-    local steps = 0
-    while #calendarEvents > 0 and (not limit or steps < limit) do
-        steps += 1
-        assert(steps <= 10000, "Calendar processing must terminate")
-        table.remove(calendarEvents, 1)()
-    end
-    return steps
-end
-local function respond(value, code, stderr, deferCalendar)
+local function respond(value, code, stderr)
     local request = assert(table.remove(queue, 1), "Expected queued request")
     request.callback({
         exitCode = code or 0,
         stdout = value,
         stderr = stderr or "secret must never appear in UI",
     })
-    if not deferCalendar then
-        drainCalendar()
-    end
     return request.argv
 end
 assert(GitLab.instance(nil) == "https://gitlab.com")
@@ -409,43 +395,6 @@ assert(
 local timezoneStreak = Data.dailyContributions({ ["2024-01-01"] = 3 }, "student", 3600)
 assert(timezoneStreak.today == 0 and timezoneStreak.currentStreak == 1)
 clock = savedClock
-local function tangledHtml()
-    local year = tonumber(today:sub(1, 4))
-    local parts = { '<div data-punchcard class="grid">' }
-    for stamp = systemTime({ year = year, month = 1, day = 1, hour = 0 }), systemTime({ year = year + 1, month = 1, day = 1, hour = 0 }) - 86400, 86400 do
-        local date = os.date("!%Y-%m-%d", stamp)
-        table.insert(
-            parts,
-            '<div><div title="'
-                .. date
-                .. ": "
-                .. (date == today and "4" or "0")
-                .. ' commits"></div></div>'
-        )
-    end
-    table.insert(parts, '</div><div title="' .. today .. ': 999 commits"></div>')
-    return table.concat(parts)
-end
-local tgHtml = tangledHtml()
-local reorderedHtml =
-    tgHtml:gsub('<div data%-punchcard class="grid">', '<div class="grid" data-punchcard="">', 1)
-assert(
-    Tangled.normalizeContributions({ html = reorderedHtml }, "alice.test"),
-    "Accept valued punchcard attributes after other attributes"
-)
-local absent, absentError =
-    Tangled.normalizeContributions({ html = "<html>Moved</html>" }, "alice.test")
-assert(not absent and absentError:find("no public commit punchcard", 1, true))
-local tgDaily = assert(Tangled.normalizeContributions({ html = tgHtml }, "alice.test"))
-assert(tgDaily.counts[today] == 4, "Ignore matching titles outside the punchcard grid")
-assert(Tangled.normalizeContributions({ html = "<div data-punchcard></div>" }, "alice.test") == nil)
-assert(
-    Tangled.normalizeContributions(
-        { html = tgHtml:gsub(today:gsub("%-", "%%-") .. ": 4", "2023-99-99: 4", 1) },
-        "alice.test"
-    ) == nil
-)
-assert(Data.dailyContributions(tgDaily.counts, tgDaily.login, 0, tgDaily.firstDate).total == 4)
 local tgDid = "did:plc:alice"
 local tgAuthored = {
     items = {
@@ -527,12 +476,11 @@ assert(calls == cachedCalls, "GitLab calendars, inbox and global work retain ind
 boot({}, true)
 service()
 respond({ authenticated = true, handle = "alice.test", did = tgDid })
-assert(queue[1].argv[1] == "curl")
-respond(tgHtml)
+assert(#queue == 1 and queue[1].argv[1] == "tg")
 respond(tgRepo)
 assert(
-    snapshot().contributions.unit == "commits"
-        and snapshot().contributions.today == 4
+    not snapshot().contributions
+        and snapshot().capabilities.contributions == false
         and snapshot().repository == ""
 )
 send({ op = "view", view = "issues" })
@@ -546,7 +494,7 @@ assert(snapshot().issues[1].url == "https://tangled.org/did:plc:owner/project/is
 local tgCached = calls
 send({ op = "view", view = "repositories" })
 send({ op = "view", view = "issues" })
-assert(calls == tgCached, "Public Tangled calendar/work/repository metadata are cached")
+assert(calls == tgCached, "Public Tangled work/repository metadata are cached")
 send({ op = "view", view = "pulls" })
 respond(tgAuthored)
 assert(
@@ -556,14 +504,12 @@ assert(
 send({ op = "view", view = "issues" })
 send({ op = "refresh" })
 respond({ authenticated = true, handle = "alice.test", did = tgDid })
-respond(tgHtml)
 local nextWork = copy(tgAuthored)
 nextWork.items[1].value.repo = "did:plc:second"
 respond(nextWork)
 local pendingDetail = assert(table.remove(queue, 1))
 send({ op = "refresh" })
 respond({ authenticated = true, handle = "alice.test", did = tgDid })
-respond(tgHtml)
 nextWork.items[1].value.title = "Updated during resolution"
 respond(nextWork)
 pendingDetail.callback({
@@ -584,33 +530,12 @@ assert(
     calls == publicCalls and snapshot().view == "issues",
     "Tangled must not expose an invented inbox API"
 )
-local largeProfile = string.rep('<div class="unrelated"></div>', 32000) .. tgHtml
-assert(#largeProfile < 1048576)
-assert(Tangled.normalizeContributions({ html = largeProfile }, "alice.test"))
-assert(
-    Tangled.normalizeContributions(
-        { html = '<div data-large="' .. string.rep("x", 9000) .. '"></div>' .. tgHtml },
-        "alice.test"
-    )
-)
-local parserJob = assert(Tangled.newContributions({ html = tgHtml }, "alice.test"))
-local parserSteps = 0
-repeat
-    local previousCount, previousExpected = parserJob.count, parserJob.expected or 0
-    Tangled.stepContributions(parserJob)
-    assert(parserJob.count - previousCount <= 16)
-    assert((parserJob.expected or 0) - previousExpected <= 16)
-    parserSteps += 1
-until parserJob.done
-assert(parserJob.value and parserSteps > 50, "A whole punchcard must span fresh callback budgets")
-local dailyJob =
-    assert(Data.newDailyContributions(tgDaily.counts, "alice.test", 0, tgDaily.firstDate))
 local streakCounts, levelDates = {}, {}
 for index, n in ipairs({ 10, 6, 3, 0, 2, 0 }) do
     local date = os.date("!%Y-%m-%d", clock + (index - 6) * 86400)
     streakCounts[date], levelDates[index] = n, date
 end
-local streakGraph = assert(Data.dailyContributions(streakCounts, "alice.test", 0, levelDates[1]))
+local streakGraph = assert(Data.dailyContributions(streakCounts, "alice.test", 0))
 assert(
     streakGraph.total == 21
         and streakGraph.today == 0
@@ -622,72 +547,57 @@ for _, week in ipairs(streakGraph.weeks) do
     for _, day in ipairs(week.days) do
         if day then
             local index = table.find(levelDates, day.date)
-            assert(index and day.level == expectedLevels[index])
+            if index then
+                assert(day.level == expectedLevels[index])
+            else
+                assert(day.count == 0 and day.level == 0)
+            end
         end
     end
 end
 streakCounts[today] = 4
-streakGraph = assert(Data.dailyContributions(streakCounts, "alice.test", 0, levelDates[1]))
+streakGraph = assert(Data.dailyContributions(streakCounts, "alice.test", 0))
 assert(
     streakGraph.total == 25
         and streakGraph.today == 4
         and streakGraph.currentStreak == 2
         and streakGraph.bestStreak == 3
 )
-local dailySteps = 0
-repeat
-    local previousIndex, previousStamp = dailyJob.index, dailyJob.stamp
-    Data.stepDailyContributions(dailyJob)
-    assert(dailyJob.index - previousIndex <= 16 and dailyJob.stamp - previousStamp <= 16 * 86400)
-    dailySteps += 1
-until dailyJob.done
-assert(dailyJob.value.total == 4 and dailySteps > 20)
 boot({}, true)
 service()
 respond({ authenticated = true, handle = "alice.test", did = tgDid })
-respond(tgHtml, nil, nil, true)
 assert(
-    snapshot().loading.contributions and not snapshot().contributions and #calendarEvents == 1,
-    "The network callback must only enqueue parsing, not normalize the calendar"
+    #queue == 1 and queue[1].argv[1] == "tg",
+    "Tangled must request repositories, never profile HTML"
 )
-drainCalendar(1)
-assert(snapshot().loading.contributions and not snapshot().contributions and #calendarEvents == 1)
-assert(drainCalendar() > 50)
-assert(snapshot().contributions.today == 4 and not snapshot().loading.contributions)
-boot({}, true)
-service()
-respond({ authenticated = true, handle = "alice.test", did = tgDid })
-respond(tgHtml, nil, nil, true)
-local pendingRepositories = table.remove(queue, 1)
+respond(tgRepo)
+assert(snapshot().status == "ready" and snapshot().capabilities.contributions == false)
+assert(
+    not snapshot().contributions
+        and not snapshot().errors.contributions
+        and not snapshot().loading.contributions
+)
+assert(
+    not watches["forges.calendar_step"],
+    "No calendar parser continuation may survive the rewrite"
+)
+send({ op = "profile", provider = "tangled" })
+assert(
+    lastLaunch[1] == "xdg-open"
+        and lastLaunch[2] == "https://tangled.org/alice.test"
+        and #queue == 0
+)
+send({ op = "view", view = "issues" })
+respond("<html>New appview</html>")
+assert(
+    snapshot().errors.issues == "Invalid JSON returned by forge CLI."
+        and not snapshot().errors.contributions
+)
 send({ op = "refresh" })
-respond({ authenticated = false }, nil, nil, true)
-drainCalendar()
-pendingRepositories.callback({ exitCode = 0, stdout = tgRepo })
-assert(
-    snapshot().account == "" and not snapshot().contributions and #calendarEvents == 0,
-    "Logout must cancel staged calendar publication and stop its continuation"
-)
-local originalCalendarNormalizer = Tangled.stepContributions
-Tangled.stepContributions = function()
-    error("calendar runtime probe exception")
-end
-boot({}, true)
-service()
 respond({ authenticated = true, handle = "alice.test", did = tgDid })
-respond(tgHtml)
-assert(
-    snapshot().errors.contributions == "Tangled calendar: calendar runtime probe exception",
-    "Do not hide calendar exceptions behind an unexpected CLI response"
-)
-Tangled.stepContributions = originalCalendarNormalizer
-boot({}, true)
-service()
-respond({ authenticated = true, handle = "alice.test", did = tgDid })
-respond("<div data-punchcard><div>")
-assert(
-    snapshot().errors.contributions
-        == "Tangled calendar: profile HTML ended before the punchcard grid closed"
-)
+assert(#queue == 1 and queue[1].argv[#queue[1].argv]:find("listIssuesBy", 1, true))
+respond({ items = {} })
+assert(snapshot().status == "ready" and #snapshot().issues == 0 and #queue == 0)
 print(
     "Forges parity: daily calendars/timezones, public Tangled authored work and repository links, GitLab role unions and paginated read-only to-dos passed"
 )
@@ -1085,8 +995,8 @@ assert(
 )
 assert(
     lastPanel.children[2].props.key == "provider-switch"
-        and lastPanel.children[3].props.key == "contribution-calendar",
-    "Tangled calendar belongs directly below forge selection, outside the list"
+        and lastPanel.children[3].props.key == "external-activity",
+    "Tangled activity is a compact profile action, not an unavailable calendar"
 )
 actions[1].props.onClick()
 assert(lastCommand.op == "profile" and lastCommand.provider == "tangled")
@@ -1336,7 +1246,7 @@ for _, cell in ipairs({ grid.children[1].children[1], grid.children[#grid.childr
         "Absent leading/future slots must be transparent, not black zero-activity days"
     )
 end
-local tgCalendar = Data.dailyContributions(tgDaily.counts, "alice.test", 0, tgDaily.firstDate)
+local tgCalendar = copy(graphData)
 tgCalendar.unit, tgCalendar.caption = "commits", "4 public commits in 2023"
 noctalia.state.set("forges.snapshot", {
     provider = "tangled",
@@ -1344,25 +1254,38 @@ noctalia.state.set("forges.snapshot", {
     view = "issues",
     status = "ready",
     repository = "owner/project",
-    contributions = tgCalendar,
+    capabilities = { contributions = false },
+    contributions = tgCalendar, -- A previous plugin version may have left a scraped graph in shared state.
     versions = { contributions = 2 },
     errors = {},
 })
-assert(wantsFrames, "Tangled calendars must be prepared rather than leaving a stale GitHub grid")
+assert(not wantsFrames, "External activity must not prepare or retain a contribution grid")
 for _ = 1, 14 do
     onFrameTick()
 end
-assert(find("label", function(props)
+assert(not find("label", function(props)
     return props.text == "4 public commits in 2023"
+end))
+assert(not find("row", function(props)
+    return props.key == "contribution-grid"
+end))
+assert(find("row", function(props)
+    return props.key == "external-activity"
+end))
+assert(find("button", function(props)
+    return props.text == "Open profile activity"
+end)).props.onClick()
+assert(lastCommand.op == "profile" and lastCommand.provider == "tangled")
+onClose()
+onOpen()
+assert(not wantsFrames and find("row", function(props)
+    return props.key == "external-activity"
 end))
 assert(find("button", function(props)
     return props.text == "Authored work"
 end)).props.onClick()
 assert(lastCommand.repository == "")
 local retainedTangledSnapshot = copy(values["forges.snapshot"])
-local retainedTangledGrid = assert(find("row", function(props)
-    return props.key == "contribution-grid"
-end))
 local glPanel = {
     provider = "gitlab",
     account = "student",
@@ -1436,9 +1359,12 @@ assert(not wantsFrames and find("row", function(props)
     return props.key == "contribution-grid"
 end) == retainedGitHubGrid)
 noctalia.state.set("forges.snapshot", retainedTangledSnapshot)
-assert(not wantsFrames and find("row", function(props)
+assert(not wantsFrames and not find("row", function(props)
     return props.key == "contribution-grid"
-end) == retainedTangledGrid, "Tangled must also retain its prepared graph across forge switches")
+end), "Tangled must never inherit another provider's retained calendar")
+assert(find("row", function(props)
+    return props.key == "external-activity"
+end))
 noctalia.state.set("forges.snapshot", graphSnapshot)
 local anotherAccount = copy(graphSnapshot)
 anotherAccount.account = "another-account"

@@ -59,14 +59,13 @@ while their data is fresh. Expired data revalidates on the configured interval,
 and Refresh explicitly reloads it; the previous graph stays visible meanwhile.
 Day tooltips and clicks show the date and contribution count; missing
 and future slots remain transparent rather than inheriting a black box fill.
-Tangled shows its current-year **public commit** punchcard in the same position.
-It is parsed from the public profile's HTML because `tg` and Bobbin expose no
-calendar endpoint. This is a compatibility surface, not a stable JSON API: a
-missing, changed, or incomplete grid produces an unavailable state and profile
-link, never an invented empty year. Future days are omitted from totals/streaks.
-HTML parsing and calendar conversion run in bounded state-watch callbacks so a
-profile cannot exhaust Noctalia's per-callback CPU budget. Account changes cancel
-pending processing before it can publish.
+Tangled uses a compact **Open profile activity** action instead of a calendar.
+Its public profile HTML is not a data API; the plugin no longer downloads or
+parses it. No supported public contribution-calendar endpoint has been verified
+for the new appview. The plugin does not infer commit counts or streaks from
+partial repository or authored-work results. This is an unsupported capability,
+not an account, network, or loading error. GitHub/GitLab retain their API-backed
+calendars and per-account prepared-graph caches.
 
 Tangled's Authored work uses Bobbin's public `listIssuesBy`/`listPullsBy` endpoints,
 not a scan of your repositories. It inspects the newest 100 authored records,

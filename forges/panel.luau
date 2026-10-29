@@ -170,6 +170,12 @@ local calendars = {}
 local calendar = { columns = {}, nextWeek = 1 }
 local selectedDay
 local COLORS = { "surface_variant", "primary/0.25", "primary/0.45", "primary/0.7", "primary" }
+local function supportsContributions()
+    if snapshot.capabilities then
+        return snapshot.capabilities.contributions == true
+    end
+    return snapshot.provider ~= "tangled"
+end
 local function prepareCalendar()
     local data = snapshot.contributions
     if type(data) ~= "table" or type(data.weeks) ~= "table" then
@@ -205,6 +211,21 @@ local function prepareCalendar()
     return data
 end
 local function contributionSection()
+    if not supportsContributions() then
+        return ui.row(
+            { key = "external-activity", gap = 8, align = "center", justify = "space_between" },
+            {
+                label("Activity", 14),
+                ui.button({
+                    text = "Open profile activity",
+                    controlSize = "sm",
+                    onClick = function()
+                        send({ op = "profile", provider = snapshot.provider })
+                    end,
+                }),
+            }
+        )
+    end
     local data = prepareCalendar()
     if not data then
         return ui.column({ key = "contribution-calendar", height = 170, justify = "center" }, {
@@ -273,7 +294,13 @@ local function contributionSection()
     return ui.column({ key = "contribution-calendar", gap = 10 }, children)
 end
 function onFrameTick()
-    if not opened or not snapshot.contributions or calendar.node or not calendar.data then
+    if
+        not opened
+        or not supportsContributions()
+        or not snapshot.contributions
+        or calendar.node
+        or not calendar.data
+    then
         panel.setNeedsFrameTick(false)
         return
     end
@@ -335,7 +362,7 @@ render = function()
     if snapshot.provider == "tangled" and tab == "notifications" then
         tab = "repositories"
     end
-    if not snapshot.contributions then
+    if not supportsContributions() or not snapshot.contributions then
         calendars[snapshot.provider] = nil
         calendar = { columns = {}, nextWeek = 1 }
         panel.setNeedsFrameTick(false)
