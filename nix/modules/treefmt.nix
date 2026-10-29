@@ -36,6 +36,12 @@
         ];
       };
 
+      settings.formatter.forges-activity-test = {
+        command = "${pkgs.stylua}/bin/stylua";
+        options = ["--config-path" "${../../forges/.stylua.toml}"];
+        includes = ["tests/forges-activity.luau"];
+      };
+
       settings.formatter.forges-luau = {
         command = "${pkgs.stylua}/bin/stylua";
         options = ["--config-path" "${../../forges/.stylua.toml}"];

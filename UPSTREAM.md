@@ -35,7 +35,11 @@ scaling.
   outlines follow shell settings, and the panel defaults to floating near-click
   placement. See [Forges setup and scope](forges/SETUP.md) for retained features
   and intentional differences. Upstream declares MIT but supplies no separate
-  license file in this snapshot.
+  license file in this snapshot. The shared six-month activity layout is adapted
+  from Tangled's `ProfileActivityChart.svelte` / `profileActivityChart.ts` at
+  [`6598d2fc5d76dbdee20fae59801b6b35973d8836`](https://tangled.org/tangled.org/core/tree/6598d2fc5d76dbdee20fae59801b6b35973d8836/web/src/lib/components/profile).
+  The original MIT notice is retained in `forges/TANGLED-LICENSE`. The Luau port
+  uses native SVG images rather than importing Svelte or web scaffolding.
 - **Keybind Cheatsheet:** synchronized the upstream 0.3.2 parser and panel,
   including staged parsing and progressive rendering to stay within callback
   CPU budgets, Fcitx5 hotkeys, sequential-binding grouping, modifier labels,

@@ -1,3 +1,4 @@
+local Activity = require("./activity.luau")
 local GitLab = {}
 function GitLab.instance(value)
     if value == nil or value == "" then
@@ -292,5 +293,69 @@ function GitLab.normalizeNotifications(raw, login)
         return nil
     end
     return { rows = out, has_more = more, cursor = cursor }
+end
+function GitLab.activity(host, login)
+    local months, pulls, issues = Activity.months(), {}, {}
+    for i, month in ipairs(months) do
+        local untilDate = Activity.monthEnd(months, i)
+        local range = '(createdAfter: "'
+            .. month.date
+            .. '-01T00:00:00Z", createdBefore: "'
+            .. untilDate
+            .. '", includeArchived: true) { count(limit: 10000) }'
+        table.insert(pulls, "pulls" .. tostring(i) .. ": authoredMergeRequests" .. range)
+        table.insert(
+            issues,
+            "issues"
+                .. tostring(i)
+                .. ": issues"
+                .. range:gsub("%(createdAfter:", "(authorUsername: $login, createdAfter:", 1)
+        )
+    end
+    local query = "query ForgesActivity($login: String!) { currentUser { username "
+        .. table.concat(pulls, " ")
+        .. " } "
+        .. table.concat(issues, " ")
+        .. " }"
+    return {
+        "glab",
+        "api",
+        "graphql",
+        "--hostname",
+        host,
+        "-f",
+        "query=" .. query,
+        "-f",
+        "login=" .. login,
+    }
+end
+function GitLab.normalizeActivity(raw, login)
+    if raw.errors and next(raw.errors) then
+        return nil
+    end
+    local user = raw.data and raw.data.currentUser
+    if not user or user.username ~= login then
+        return nil
+    end
+    local months = Activity.months()
+    for i, month in ipairs(months) do
+        for _, metric in ipairs({ "pulls", "issues" }) do
+            local source = metric == "pulls" and user or raw.data
+            local connection = source[metric .. tostring(i)]
+            if
+                type(connection) ~= "table"
+                or not Activity.count(connection.count)
+                or connection.count > 10001
+            then
+                return nil
+            end
+            month.values[metric] = connection.count
+            month.lowerBounds[metric] = connection.count == 10001
+        end
+    end
+    return {
+        months = months,
+        note = "Authored MRs/issues · commits and new repositories unavailable · independent scales",
+    }
 end
 return GitLab

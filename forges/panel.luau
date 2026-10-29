@@ -1,5 +1,6 @@
 --!nonstrict
 local GitLab = require("./lib/gitlab.luau")
+local Activity = require("./lib/activity.luau")
 -- Native work queue: forge -> repository scope -> bounded, readable rows.
 local opened = false
 local snapshot = noctalia.state.get("forges.snapshot")
@@ -167,129 +168,118 @@ local function workRow(item)
     )
 end
 local calendars = {}
-local calendar = { columns = {}, nextWeek = 1 }
-local selectedDay
-local COLORS = { "surface_variant", "primary/0.25", "primary/0.45", "primary/0.7", "primary" }
+local calendar = {}
+local imageRevision = 0
 local function supportsContributions()
     if snapshot.capabilities then
         return snapshot.capabilities.contributions == true
     end
     return snapshot.provider ~= "tangled"
 end
+local function clearCalendar(provider)
+    local cached = calendars[provider]
+    if cached and cached.path then
+        noctalia.removeFile(cached.path)
+    end
+    calendars[provider] = nil
+end
+local function chartColors()
+    local function color(role, fallback)
+        local value = noctalia.getColor(role)
+        return type(value) == "string" and value:match("^#%x%x%x%x%x%x$") and value or fallback
+    end
+    return {
+        background = color("surface", "#202124"),
+        current = color("surface_variant", "#303134"),
+        text = color("on_surface", "#e8eaed"),
+        border = color("outline", "#777777"),
+        rising = color("primary", "#a8c7fa"),
+        falling = color("error", "#f28b82"),
+    }
+end
+local function paletteKey(colors)
+    return table.concat({
+        colors.background,
+        colors.current,
+        colors.text,
+        colors.border,
+        colors.rising,
+        colors.falling,
+    }, ":")
+end
 local function prepareCalendar()
     local data = snapshot.contributions
-    if
-        type(data) ~= "table"
-        or (
-            type(data.weeks) ~= "table"
-            and not (data.granularity == "month" and type(data.months) == "table")
-        )
-    then
+    if type(data) ~= "table" then
         return nil
     end
-    local scale = math.clamp(finite(noctalia.getSetting("shell.corner_radius_scale"), 1), 0, 2)
     local identity = snapshot.provider
         .. ":"
         .. (snapshot.base_url or "")
         .. ":"
         .. (snapshot.account or "")
+    local cached = calendars[snapshot.provider]
+    if cached and cached.identity ~= identity then
+        clearCalendar(snapshot.provider)
+        cached = nil
+    end
+    local colors = chartColors()
     local key = identity
         .. ":"
         .. tostring((snapshot.versions or {}).contributions or 0)
         .. ":"
-        .. (data.granularity or "day")
+        .. tostring((snapshot.versions or {}).activity or 0)
         .. ":"
-        .. tostring(scale)
-    local cached = calendars[snapshot.provider]
+        .. paletteKey(colors)
     if not cached or cached.key ~= key then
-        cached = {
-            key = key,
-            identity = identity,
-            data = data,
-            columns = {},
-            nextWeek = 1,
-            scale = scale,
-            previousNode = cached
-                    and cached.identity == identity
-                    and cached.data.granularity == data.granularity
-                    and cached.node
-                or nil,
-        }
-        if data.granularity == "month" then
-            local values = {}
-            for _, month in ipairs(data.months) do
-                table.insert(values, data.peak > 0 and month.count / data.peak or 0)
-            end
-            cached.node = ui.graph({
-                key = "monthly-contribution-graph",
-                height = 76,
-                values = values,
-                color = "primary",
-                lineWidth = 2,
-                fillOpacity = 0.14,
-                onPointerMove = "onMonthlyGraphMove",
-                onPointerLeave = "onMonthlyGraphLeave",
-            })
+        local activity = Activity.fromCalendar(data)
+        local svg = Activity.svg(activity, colors, snapshot.provider)
+        if cached and cached.svg == svg then
+            cached.key, cached.data, cached.error = key, activity, nil
+            cached.palette = paletteKey(colors)
+            calendar = cached
+            return activity
         end
-        calendars[snapshot.provider] = cached
+        local directory = noctalia.pluginDataDir()
+        local path = directory and (directory .. "/activity-" .. snapshot.provider .. ".svg")
+        local temporary = path and (path .. ".tmp")
+        local written = path
+            and noctalia.mkdirAll(directory)
+            and noctalia.writeFile(temporary, svg)
+            and noctalia.renameFile(temporary, path)
+        if temporary then
+            noctalia.removeFile(temporary)
+        end
+        if written then
+            imageRevision += 1
+            cached = {
+                key = key,
+                identity = identity,
+                data = activity,
+                path = path,
+                svg = svg,
+                palette = paletteKey(colors),
+                selectedMonth = cached and cached.selectedMonth or 6,
+                -- A new image key forces API34 to reread the bounded per-provider SVG file.
+                node = ui.image({
+                    key = "activity-chart-" .. tostring(imageRevision),
+                    path = path,
+                    width = 548,
+                    height = 210,
+                    fit = "contain",
+                    tooltip = "Monthly activity · each metric scaled independently · select a month below for exact counts",
+                }),
+            }
+            calendars[snapshot.provider] = cached
+        else
+            cached = cached or { identity = identity, data = activity, selectedMonth = 6 }
+            cached.error = "Could not write activity chart. Monthly counts remain available below."
+        end
+    end
+    if cached.key == key then
+        cached.error = nil
     end
     calendar = cached
-    selectedDay = calendar.selectedDay
-    panel.setNeedsFrameTick(calendar.node == nil)
-    return data
-end
-function onMonthlyGraphMove(normX)
-    if not opened or not calendar.data or calendar.data.granularity ~= "month" then
-        return
-    end
-    local index = math.clamp(
-        math.floor(finite(tonumber(normX), 0) * (#calendar.data.months - 1) + 0.5) + 1,
-        1,
-        #calendar.data.months
-    )
-    if calendar.selectedMonth ~= index then
-        calendar.selectedMonth = index
-        render()
-    end
-end
-function onMonthlyGraphLeave()
-    if calendar.selectedMonth then
-        calendar.selectedMonth = nil
-        if opened then
-            render()
-        end
-    end
-end
-local function monthlySection(data)
-    local labels = {}
-    for _, month in ipairs(data.months) do
-        table.insert(
-            labels,
-            ui.label({
-                text = month.label,
-                fontSize = 10,
-                flexGrow = 1,
-                textAlign = "center",
-                tooltip = month.date .. " · " .. tostring(month.count) .. " commits",
-            })
-        )
-    end
-    local month = calendar.selectedMonth and data.months[calendar.selectedMonth]
-    local children = {
-        ui.label({ text = data.caption, fontSize = 16, fontWeight = "semibold" }),
-        calendar.node,
-        ui.row({ gap = 2 }, labels),
-        label(
-            month and (month.date .. " · " .. tostring(month.count) .. " commits")
-                or (data.firstDate .. " — " .. data.lastDate),
-            11
-        ),
-        label("Monthly totals · UTC · current month partial", 11),
-    }
-    if (snapshot.errors or {}).contributions then
-        table.insert(children, label(snapshot.errors.contributions, 11, "error"))
-    end
-    return ui.column({ key = "monthly-contributions", gap = 6 }, children)
+    return cached.data
 end
 local function contributionSection()
     if not supportsContributions() then
@@ -313,9 +303,8 @@ local function contributionSection()
             label(
                 (snapshot.errors or {}).contributions
                     or (
-                        (snapshot.loading or {}).contributions
-                            and "Loading contribution graph…"
-                        or "Contribution graph unavailable."
+                        (snapshot.loading or {}).contributions and "Loading activity…"
+                        or "Activity unavailable."
                     ),
                 14
             ),
@@ -328,116 +317,43 @@ local function contributionSection()
             }),
         })
     end
-    if data.granularity == "month" then
-        return monthlySection(data)
-    end
-    local legend = { label("Less", 10) }
-    for index, color in ipairs(COLORS) do
+    local months = {}
+    for i, month in ipairs(data.months) do
         table.insert(
-            legend,
-            ui.box({
-                width = 7,
-                height = 7,
-                radius = calendar.scale * 2,
-                fill = color,
-                opacity = index == 1 and 0.4 or 1,
+            months,
+            ui.button({
+                key = "activity-month-" .. tostring(i),
+                text = month.label,
+                controlSize = "sm",
+                flexGrow = 1,
+                tooltip = Activity.detail(data, i, snapshot.provider),
+                onClick = function()
+                    calendar.selectedMonth = i
+                    render()
+                end,
             })
         )
     end
-    table.insert(legend, label("More", 10))
-    local detail = selectedDay
-            and (selectedDay.date .. " · " .. tostring(selectedDay.count) .. " " .. (data.unit or "contributions"))
-        or (data.firstDate .. " — " .. data.lastDate)
-    local children = {
-        ui.label({
-            text = data.caption or (tostring(data.total) .. " contributions in the last year"),
-            fontSize = 16,
-            fontWeight = "semibold",
-        }),
-        calendar.node or calendar.previousNode or ui.column(
-            { height = 61, justify = "center" },
-            { label("Preparing contribution graph…") }
-        ),
-        ui.row(
-            { justify = "space_between" },
-            { label(detail, 11), ui.row({ gap = 3, align = "center" }, legend) }
-        ),
-        label(
-            "Today "
-                .. tostring(data.today)
-                .. "  ·  Current streak "
-                .. tostring(data.currentStreak)
-                .. " days  ·  Best "
-                .. tostring(data.bestStreak)
-                .. " days"
-        ),
-    }
+    local children = { label("Activity · last 6 months", 14) }
+    if calendar.node then
+        table.insert(children, calendar.node)
+    end
+    table.insert(children, ui.row({ key = "activity-months", gap = 2 }, months))
+    table.insert(
+        children,
+        label(Activity.detail(data, calendar.selectedMonth or 6, snapshot.provider), 11)
+    )
+    table.insert(children, label((data.note or "") .. " · current month partial", 11))
+    if calendar.error then
+        table.insert(children, label(calendar.error, 11, "error"))
+    end
     if (snapshot.errors or {}).contributions then
         table.insert(children, label(snapshot.errors.contributions, 11, "error"))
     end
-    return ui.column({ key = "contribution-calendar", gap = 10 }, children)
+    return ui.column({ key = "activity-section", gap = 6 }, children)
 end
 function onFrameTick()
-    if
-        not opened
-        or not supportsContributions()
-        or not snapshot.contributions
-        or calendar.node
-        or not calendar.data
-    then
-        panel.setNeedsFrameTick(false)
-        return
-    end
-    for _ = 1, 4 do
-        local week = calendar.data.weeks[calendar.nextWeek]
-        if not week then
-            break
-        end
-        local cells = {}
-        for day = 1, 7 do
-            local value = week.days[day]
-            if value then
-                table.insert(
-                    cells,
-                    ui.box({
-                        key = "contribution-" .. value.date,
-                        width = 7,
-                        height = 7,
-                        radius = 2 * calendar.scale,
-                        fill = COLORS[value.level + 1],
-                        opacity = value.level == 0 and 0.4 or 1,
-                        tooltip = value.date
-                            .. " · "
-                            .. tostring(value.count)
-                            .. " "
-                            .. (calendar.data.unit or "contributions"),
-                        onClick = function()
-                            selectedDay = value
-                            calendar.selectedDay = value
-                            render()
-                        end,
-                    })
-                )
-            else
-                -- Missing/future calendar slots must not inherit ui.box's default fill.
-                table.insert(
-                    cells,
-                    ui.box({ width = 7, height = 7, fill = "transparent", opacity = 0 })
-                )
-            end
-        end
-        table.insert(
-            calendar.columns,
-            ui.column({ key = "week-" .. tostring(calendar.nextWeek), gap = 2 }, cells)
-        )
-        calendar.nextWeek += 1
-    end
-    if calendar.nextWeek > #calendar.data.weeks then
-        calendar.node =
-            ui.row({ key = "contribution-grid", gap = 2, align = "start" }, calendar.columns)
-        panel.setNeedsFrameTick(false)
-        render()
-    end
+    panel.setNeedsFrameTick(false)
 end
 render = function()
     if not opened then
@@ -447,8 +363,8 @@ render = function()
         tab = "repositories"
     end
     if not supportsContributions() or not snapshot.contributions then
-        calendars[snapshot.provider] = nil
-        calendar = { columns = {}, nextWeek = 1 }
+        clearCalendar(snapshot.provider)
+        calendar = {}
         panel.setNeedsFrameTick(false)
     end
     local forge = snapshot.provider == "github" and "GitHub"
@@ -819,18 +735,38 @@ noctalia.state.watch("forges.snapshot", function(value)
         query, repositoryDraft, inputError = "", "", ""
         notificationFilter, inboxPage = "all", 1
     end
+    local cached = calendars[value.provider]
+    local identity = (value.provider or "")
+        .. ":"
+        .. (value.base_url or "")
+        .. ":"
+        .. (value.account or "")
+    if
+        cached
+        and (
+            not value.contributions
+            or cached.identity ~= identity
+            or (value.capabilities and value.capabilities.contributions == false)
+        )
+    then
+        clearCalendar(value.provider)
+    end
     snapshot = value
     tab = snapshot.view == "overview" and "repositories" or (snapshot.view or "repositories")
     render()
 end)
 function onOpen()
     opened = true
+    panel.setWantsSecondTicks(true)
     render()
 end
 function onClose()
     opened = false
+    panel.setWantsSecondTicks(false)
     panel.setNeedsFrameTick(false)
 end
-function onConfigChanged()
-    render()
+function update()
+    if opened and calendar.data and calendar.palette ~= paletteKey(chartColors()) then
+        render()
+    end
 end

@@ -30,9 +30,11 @@ projects. Each role query loads its latest 30 updates; duplicates are removed an
 the latest 30 combined results are shown.
 
 GitLab's contribution calendar uses the experimental `contributionCalendar`
-GraphQL field introduced in GitLab 19.5. Older instances keep working without a
-graph and offer **Open profile activity** instead. Calendar failure does not
-block work queues or to-dos. Dates use the calendar's reported UTC offset.
+GraphQL field introduced in GitLab 19.5. It is only a fallback for instances
+without typed activity counts; older instances can still show MR/issue charts
+without it. If neither API is supported, **Open profile activity** remains
+available. Neither failure blocks work queues or to-dos. Typed charts use UTC;
+the aggregate fallback respects the calendar's reported date/UTC offset.
 The **To-dos** tab loads pending and done items together, including snoozed items
 returned by GitLab. All/Pending/Done filters and 20-row display pages are local;
 Load older to-dos follows GraphQL cursors, up to 500 loaded items. These are
@@ -50,27 +52,43 @@ Repositories lists up to 50 repositories returned by the CLI. Inspect a row, or
 enter `owner/repository`, to view its open pull requests and issues (up to 30 each).
 All forges open on Repositories with no repository scope selected. Inspecting a
 repository switches to its work; All work (GitHub/GitLab) or Authored work
-(Tangled) returns to the cross-repository scope. GitHub's full-year contribution
-calendar stays directly below the forge selector, above every queue, with
-today/current/best-streak metrics. Graph construction is staged and cached
-separately for each forge. Switching
-forges or reopening the panel reuses the prepared graphs, without another fetch
-while their data is fresh. Expired data revalidates on the configured interval,
-and Refresh explicitly reloads it; the previous graph stays visible meanwhile.
-Day tooltips and clicks show the date and contribution count; missing
-and future slots remain transparent rather than inheriting a black box fill.
-Tangled shows an API-backed **monthly public commit graph** for the last 12 UTC
-calendar months, including the current partial month. It uses the deployed
-`org.tangled.actor.getProfileActivity` endpoint with the authenticated account's
-DID. The API omits inactive months; the graph restores those as zero. Hover the
-native chart or month labels to inspect totals. Daily counts and daily streaks
-are not available from this API and are not inferred from monthly totals.
-Its prepared chart is cached per account, survives provider switches and panel
-reopening, and retains its last successful data during refresh failures.
-No profile HTML is downloaded or parsed. Failed requests offer **Open profile
-activity** without blocking work queues. GitHub/GitLab retain their daily graphs.
+(Tangled) returns to the cross-repository scope. All three forges share a
+**six-calendar-month activity chart**, pinned below the forge selector and above
+all queues. The layout is adapted from Tangled's Svelte activity chart: curved
+trends, month columns, separate metrics, and an expanded current-month summary.
+Each metric is scaled independently; vertical positions are not comparable
+between metrics. Select a month below the chart for exact counts. The current
+month is partial. Unavailable counts are `—`, never fabricated zeros.
 
-The monthly graph uses the new `org.tangled.*` API. The authored-work integration
+- **GitHub:** monthly contribution credit for commits, opened pull requests,
+  opened issues, and created repositories, fetched with six GraphQL aliases.
+  These use GitHub's contribution eligibility rules, not all authored commits.
+- **Tangled:** public commits and returned pull/issue/repository activity from
+  `org.tangled.actor.getProfileActivity`, using the authenticated account's DID.
+  Repository activity includes forks. Inactive months are restored as zero.
+  When the API truncates activity lists, affected counts show `+` and dashed
+  curves as lower bounds; independently computed commit totals remain exact.
+  Counts reflect the API's returned/indexed public records, not private activity.
+- **GitLab:** authored merge requests and issues, counted independently of the
+  experimental calendar. Commits and repository creation are unavailable as
+  comparable metrics and remain `—`. Count queries are capped at 10,000; the
+  API's 10,001 sentinel is displayed as a lower bound. If the instance lacks
+  typed-count support, its contribution calendar is shown as an explicitly
+  aggregate contribution series instead, when available.
+
+Graphs are cached separately per provider, host, account, data version, and
+palette. Switching queues/forges or reopening the panel reuses prepared images.
+Fresh data avoids network requests; expired data revalidates on the configured
+interval. Refresh reloads activity and the selected queue. Failed requests or
+image writes retain the same account's last successful graph, with an error.
+No profile HTML is parsed and no external SVG renderer is required. API 34's
+native image loader renders the generated SVGs. At most one SVG per provider
+is retained in the plugin data directory (plus one temporary file during an
+atomic update); account invalidation clears its cached image/file, even while
+the panel is closed. Failed requests offer **Open profile activity** without
+blocking work queues. Daily heatmaps and streak metrics are no longer displayed.
+
+The Tangled activity graph uses the new `org.tangled.*` API. The authored-work integration
 below still uses legacy `sh.tangled.*` methods; migrating those queries is separate
 from this graph change.
 
@@ -115,7 +133,9 @@ header, not every resource. The configured interval controls freshness; stale
 visible resources revalidate in the background
 while its last-good results remain visible. Inactive providers do not poll. A
 failed request neither erases successful results nor advances their freshness.
-Caches are session-local and are not written to disk.
+API result caches are session-local. The panel writes only its bounded generated
+SVG images to the plugin data directory; these can contain private contribution
+counts and are cleared on detected account invalidation.
 
 Tangled CLI requests are pinned with `tg --account` to the verified account.
 Public Tangled requests use the verified handle/DID without credentials, with

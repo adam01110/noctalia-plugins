@@ -3,6 +3,7 @@ local GitLab = require("./lib/gitlab.luau")
 local GitHub = require("./lib/github.luau")
 local Data = require("./lib/data.luau")
 local Tangled = require("./lib/tangled.luau")
+local Activity = require("./lib/activity.luau")
 
 local function defaultProvider()
     local value = noctalia.getConfig("provider")
@@ -37,6 +38,7 @@ local function context(forge)
             profile = resource(),
             repositories = resource(),
             contributions = resource(),
+            activity = resource(),
             notifications = resource(),
             work = {},
             repositoryDetails = {},
@@ -75,6 +77,9 @@ local function selectedResource(ctx)
         local entry = ctx.work[ctx.repository]
         return entry and entry[ctx.view] or nil
     end
+    if ctx.view == "overview" and ctx.provider == "gitlab" and ctx.activity.value then
+        return ctx.activity
+    end
     return ctx[ctx.view == "overview" and "contributions" or ctx.view]
 end
 local function publish(ctx)
@@ -88,6 +93,7 @@ local function publish(ctx)
         account = ctx.profile,
         repositories = ctx.repositories,
         contributions = ctx.contributions,
+        activity = ctx.activity,
         notifications = ctx.notifications,
         pulls = entry.pulls,
         issues = entry.issues,
@@ -111,6 +117,18 @@ local function publish(ctx)
             ctx.missingCli and "missing_cli"
             or (busy and "loading" or (failed and "partial" or "ready"))
         )
+    local contributions = ctx.contributions.value
+    if ctx.provider == "gitlab" then
+        if ctx.activity.value then
+            contributions = table.clone(contributions or {})
+            contributions.activity = ctx.activity.value
+            errors.contributions = ctx.activity.error
+        elseif contributions and ctx.activity.error then
+            errors.contributions =
+                "Activity breakdown unavailable; showing aggregate contributions."
+        end
+        loading.contributions = ctx.contributions.loading or ctx.activity.loading
+    end
     noctalia.state.set("forges.snapshot", {
         provider = ctx.provider,
         base_url = ctx.provider == "gitlab" and gitlabUrl or nil,
@@ -122,7 +140,7 @@ local function publish(ctx)
         stale = failed ~= nil and selected ~= nil and selected.value ~= nil,
         updated_at = selected and selected.updated_at or nil,
         repositories = ctx.repositories.value or {},
-        contributions = ctx.contributions.value,
+        contributions = contributions,
         notifications = ctx.notifications.value or {},
         pulls = entry.pulls and entry.pulls.value or {},
         issues = entry.issues and entry.issues.value or {},
@@ -139,6 +157,7 @@ local function invalidate(ctx)
     ctx.account, ctx.accountId, ctx.repository = "", "", ""
     ctx.repositories, ctx.contributions, ctx.notifications = resource(), resource(), resource()
     ctx.work, ctx.scopeError, ctx.repositoryDetails = {}, nil, {}
+    ctx.activity = resource()
 end
 local function fresh(item)
     -- A failed request is throttled independently, and does not erase its last success.
@@ -239,6 +258,7 @@ local function request(ctx, item, argv, normalize, force, after, failed)
                 ctx.provider == "gitlab"
                         and item == ctx.contributions
                         and "Contribution calendar unavailable. Requires GitLab 19.5 or newer with contributionCalendar support."
+                    or (ctx.provider == "gitlab" and item == ctx.activity and "Activity breakdown unavailable on this GitLab instance.")
                     or (normalized and normalizationError or nil)
                     or "Unexpected response from forge CLI."
             )
@@ -430,6 +450,16 @@ local function loadView(ctx, force)
     if ctx.account == "" then
         return
     end
+    if ctx.provider == "gitlab" then
+        local requestedMonths = Activity.months()
+        request(ctx, ctx.activity, GitLab.activity(gitlabHost, ctx.account), function(raw)
+            -- A response crossing a UTC month boundary belongs to the previous chart window.
+            if requestedMonths[6].date ~= Activity.months()[6].date then
+                return nil
+            end
+            return GitLab.normalizeActivity(raw, ctx.account)
+        end, force)
+    end
     if ctx.provider == "tangled" then
         if noctalia.commandExists("curl") then
             request(ctx, ctx.contributions, Tangled.contributions(ctx.accountId), function(raw)
@@ -453,8 +483,15 @@ local function loadView(ctx, force)
                 end
                 return value
             end
-            local value = Data.contributions(raw)
-            return value and value.login == ctx.account and value or nil
+            if raw.errors and next(raw.errors) then
+                return nil
+            end
+            local viewer = raw.data and raw.data.viewer
+            if not viewer or viewer.login ~= ctx.account then
+                return nil
+            end
+            local activity = Activity.github(raw)
+            return activity and { login = viewer.login, activity = activity } or nil
         end, force)
     end
     if ctx.view == "repositories" then

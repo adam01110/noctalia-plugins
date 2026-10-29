@@ -1,5 +1,6 @@
 -- Adapted from Shangshui0302's GitHub Kanban (MIT).
 -- Read-only argv requests; no shell interpolation or notification mutations.
+local Activity = require("./activity.luau")
 local GitHub = {}
 function GitHub.profile()
     return { "gh", "api", "user", "--jq", "{id, login, name}", "--hostname", "github.com" }
@@ -40,8 +41,22 @@ function GitHub.notifications(page)
     }
 end
 function GitHub.contributions()
-    local query =
-        [[query { viewer { login contributionsCollection { contributionCalendar { totalContributions weeks { contributionDays { date weekday contributionCount contributionLevel } } } } } }]]
+    local collections = {}
+    local months = Activity.months()
+    for i, month in ipairs(months) do
+        local nextDate = Activity.monthEnd(months, i)
+        table.insert(
+            collections,
+            "activity"
+                .. tostring(i)
+                .. ': contributionsCollection(from: "'
+                .. month.date
+                .. '-01T00:00:00Z", to: "'
+                .. nextDate
+                .. '") { startedAt totalCommitContributions totalPullRequestContributions totalIssueContributions totalRepositoryContributions }'
+        )
+    end
+    local query = "query { viewer { login " .. table.concat(collections, " ") .. " } }"
     return { "gh", "api", "graphql", "-f", "query=" .. query, "--hostname", "github.com" }
 end
 return GitHub

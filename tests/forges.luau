@@ -7,6 +7,9 @@ local os = {
         return value and systemTime(value) or clock
     end,
 }
+local Activity = (function()
+    -- ACTIVITY_SOURCE
+end)()
 local GitHub = (function()
     -- GITHUB_SOURCE
 end)()
@@ -33,8 +36,46 @@ local function copy(value)
 end
 local config, settings, values, watches, queue, exists, failStart, missingCommands
 local calls, lastPanel, panelRenders, lastCommand, lastLaunch, glyph, tooltip, toggled, wantsFrames
+local secondTicks = false
 local nodeCreations = 0
+local imageFiles, imageWrites, failImageWrite, deferActivity = {}, 0, false, false
 local noctalia = {
+    pluginDataDir = function()
+        return "/plugin-data/forges"
+    end,
+    mkdirAll = function()
+        return true
+    end,
+    writeFile = function(path, content)
+        if failImageWrite then
+            return false, "disk full"
+        end
+        imageFiles[path] = content
+        imageWrites += 1
+        return true
+    end,
+    renameFile = function(source, target)
+        if not imageFiles[source] then
+            return false
+        end
+        imageFiles[target], imageFiles[source] = imageFiles[source], nil
+        return true
+    end,
+    removeFile = function(path)
+        imageFiles[path] = nil
+        return true
+    end,
+    getColor = function(role)
+        return settings["color." .. role]
+            or ({
+                surface = "#202124",
+                surface_variant = "#303134",
+                on_surface = "#e8eaed",
+                outline = "#777777",
+                primary = "#a8c7fa",
+                error = "#f28b82",
+            })[role]
+    end,
     nowMs = function()
         return 100
     end,
@@ -85,6 +126,18 @@ local noctalia = {
                 "Only structured public Tangled API requests are allowed"
             )
         end
+        -- Legacy scenarios stub the optional typed-count capability as unsupported.
+        -- Dedicated tests below defer it to exercise success, partial data and identity races.
+        if
+            callback
+            and argv[1] == "glab"
+            and argv[7]
+            and argv[7]:find("query ForgesActivity", 1, true)
+            and not deferActivity
+        then
+            callback({ exitCode = 0, stdout = { errors = { { message = "unsupported" } } } })
+            return true
+        end
         if not callback then
             lastLaunch = argv
             return true
@@ -103,6 +156,7 @@ local function boot(options, publicData)
     config = options or {}
     settings, values, watches, queue, missingCommands = {}, {}, {}, {}, {}
     exists, failStart, calls = true, false, 0
+    imageFiles, imageWrites, failImageWrite, deferActivity = {}, 0, false, false
     missingCommands.curl = not publicData
 end
 local function service()
@@ -250,7 +304,7 @@ local function calendarFixture(login, weekCount)
         end
         table.insert(weeks, { contributionDays = days })
     end
-    return {
+    local raw = {
         data = {
             viewer = {
                 login = login or "octocat",
@@ -260,6 +314,16 @@ local function calendarFixture(login, weekCount)
             },
         },
     }
+    for i, month in ipairs(Activity.months()) do
+        raw.data.viewer["activity" .. tostring(i)] = {
+            startedAt = month.date .. "-01T00:00:00Z",
+            totalCommitContributions = i,
+            totalPullRequestContributions = i % 2,
+            totalIssueContributions = 0,
+            totalRepositoryContributions = 0,
+        }
+    end
+    return raw
 end
 local function githubResults(kind, title)
     return {
@@ -297,6 +361,28 @@ local function glCalendar(login, count)
         },
     }
 end
+local function glActivityFixture(login)
+    local raw = { data = { currentUser = { username = login or "student" } } }
+    for i = 1, 6 do
+        raw.data.currentUser["pulls" .. tostring(i)] = { count = i }
+        raw.data["issues" .. tostring(i)] = { count = i == 6 and 10001 or 0 }
+    end
+    return raw
+end
+local typedGitLab = assert(GitLab.normalizeActivity(glActivityFixture(), "student"))
+assert(typedGitLab.months[6].values.pulls == 6 and typedGitLab.months[6].values.issues == 10001)
+assert(typedGitLab.months[6].lowerBounds.issues and not typedGitLab.months[6].lowerBounds.pulls)
+assert(typedGitLab.months[6].values.commits == nil and typedGitLab.months[6].values.repos == nil)
+assert(not GitLab.normalizeActivity(glActivityFixture("other"), "student"))
+local invalidTyped = glActivityFixture()
+invalidTyped.data.issues6.count = 10002
+assert(not GitLab.normalizeActivity(invalidTyped, "student"))
+invalidTyped = glActivityFixture()
+invalidTyped.data.currentUser.pulls1.count = -1
+assert(not GitLab.normalizeActivity(invalidTyped, "student"))
+local typedArgv = GitLab.activity("gitlab.school.edu", "student")
+assert(typedArgv[7]:find("query ForgesActivity", 1, true) and typedArgv[9] == "login=student")
+assert(typedArgv[7]:find("count(limit: 10000)", 1, true))
 local function glTodoPage(nodes, more, cursor)
     return {
         data = {
@@ -684,6 +770,69 @@ assert(
     snapshot().account == "" and not snapshot().contributions,
     "Reject monthly responses after logout"
 )
+-- Typed GitLab activity succeeds even when the experimental calendar is unsupported.
+boot({ provider = "gitlab" })
+deferActivity = true
+service()
+respond(glProfile)
+assert(queue[1].argv[7]:find("query ForgesActivity", 1, true))
+respond(glActivityFixture())
+unsupportedCalendar()
+respond(glRepos)
+respond(glProfile) -- Postflight identity for typed activity.
+respond(glProfile) -- Postflight identity for repositories.
+assert(#queue == 0 and snapshot().contributions.activity.months[6].values.pulls == 6)
+assert(not snapshot().errors.contributions and not snapshot().contributions.weeks)
+send({ op = "view", view = "overview" })
+assert(
+    snapshot().status == "ready" and snapshot().updated_at ~= nil,
+    "Overview freshness follows the displayed typed chart"
+)
+send({ op = "view", view = "repositories" })
+local typedVersion = snapshot().versions.activity
+local typedCalls = calls
+send({ op = "view", view = "repositories" })
+assert(calls == typedCalls, "Typed activity has its own freshness cache")
+send({ op = "refresh" })
+respond(glProfile)
+local lateTyped = assert(table.remove(queue, 1))
+unsupportedCalendar()
+respond(glRepos)
+respond(glProfile)
+send({ op = "refresh" })
+respond({ authenticated = false })
+lateTyped.callback({ exitCode = 0, stdout = glActivityFixture() })
+assert(
+    not snapshot().contributions and snapshot().account == "",
+    "Logout rejects late typed activity responses"
+)
+-- Failed typed refresh retains the last good breakdown, not fabricated zeroes.
+boot({ provider = "gitlab" })
+deferActivity = true
+service()
+respond(glProfile)
+respond(glActivityFixture())
+unsupportedCalendar()
+respond(glRepos)
+respond(glProfile)
+respond(glProfile)
+typedVersion = snapshot().versions.activity
+send({ op = "refresh" })
+respond(glProfile)
+respond({ errors = { { message = "unsupported" } } })
+unsupportedCalendar()
+respond(glRepos)
+respond(glProfile)
+assert(
+    snapshot().versions.activity == typedVersion
+        and snapshot().contributions.activity.months[6].values.pulls == 6
+)
+assert(snapshot().errors.contributions and #queue == 0)
+send({ op = "view", view = "overview" })
+assert(
+    snapshot().status == "partial" and snapshot().stale,
+    "Failed typed refresh marks its retained overview stale"
+)
 print(
     "Forges parity: daily calendars/timezones, public Tangled authored work and repository links, GitLab role unions and paginated read-only to-dos passed"
 )
@@ -743,7 +892,7 @@ respondGh({ { full_name = "octocat/example", description = "Example" } })
 assert(
     snapshot().status == "ready"
         and snapshot().view == "repositories"
-        and snapshot().contributions.total > 0
+        and snapshot().contributions.activity.months[6].values.commits > 0
         and #queue == 0
 )
 send({ op = "view", view = "repositories" })
@@ -1017,6 +1166,79 @@ table.remove(
 local partialData = assert(Data.contributions(partialWeek))
 assert(partialData.weeks[1].days[1] == false and partialData.weeks[1].days[2] ~= false)
 
+-- Six calendar months, not a rolling day-count window; preserve year/leap boundaries.
+local activityClock = clock
+clock = systemTime({ year = 2024, month = 2, day = 29, hour = 12 })
+local chartMonths = Activity.months()
+assert(#chartMonths == 6 and chartMonths[1].date == "2023-09" and chartMonths[6].date == "2024-02")
+local monthlyQuery = GitHub.contributions()[5]
+assert(monthlyQuery:find('from: "2023-09-01T00:00:00Z"', 1, true))
+assert(monthlyQuery:find('to: "2024-01-31T23:59:59Z"', 1, true))
+local metricFixture = { data = { viewer = { login = "octocat" } } }
+for i, month in ipairs(chartMonths) do
+    metricFixture.data.viewer["activity" .. tostring(i)] = {
+        startedAt = month.date .. "-01T00:00:00Z",
+        totalCommitContributions = 700 - i * 100,
+        totalPullRequestContributions = i * 10,
+        totalIssueContributions = 5,
+        totalRepositoryContributions = i % 3,
+    }
+end
+local multiActivity = assert(Activity.github(metricFixture))
+local chartLayout = Activity.layout(multiActivity)
+assert(chartLayout.width == 548 and chartLayout.height == 210)
+assert(chartLayout.columns[6].left + chartLayout.columns[6].width == chartLayout.width)
+assert(chartLayout.points.pulls[1].y > chartLayout.points.pulls[6].y)
+assert(chartLayout.points.commits[1].y < chartLayout.points.commits[6].y)
+for i = 1, 6 do
+    local ys = {}
+    for _, metric in ipairs(Activity.metrics) do
+        local point = chartLayout.points[metric][i]
+        assert(point.x == chartLayout.columns[i].left + 8 and point.y >= 20 and point.y <= 164)
+        table.insert(ys, point.y)
+    end
+    table.sort(ys)
+    for j = 2, #ys do
+        assert(ys[j] - ys[j - 1] >= 28)
+    end
+end
+local badMetric = copy(metricFixture)
+badMetric.data.viewer.activity3.totalCommitContributions = -1
+assert(not Activity.github(badMetric))
+badMetric = copy(metricFixture)
+badMetric.data.viewer.activity1.startedAt = "2000-01-01T00:00:00Z"
+assert(not Activity.github(badMetric), "Never relabel stale monthly responses")
+clock = activityClock
+local tgFull = copy(tgActivity)
+tgFull.months[1].pulls = { {} }
+tgFull.months[1].issues = {}
+tgFull.months[1].repos = { {}, {} }
+local fullActivity = assert(Tangled.normalizeContributions(tgFull, "alice.test")).activity
+assert(fullActivity.months[6].values.commits == 4)
+assert(fullActivity.months[6].values.pulls == 1 and fullActivity.months[6].values.repos == 2)
+assert(fullActivity.months[6].values.issues == 0 and not fullActivity.months[6].lowerBounds.pulls)
+tgFull.truncated = true
+local partialActivity = assert(Tangled.normalizeContributions(tgFull, "alice.test")).activity
+assert(
+    partialActivity.months[6].values.commits == 4
+        and not partialActivity.months[6].lowerBounds.commits
+)
+assert(partialActivity.months[6].lowerBounds.pulls and partialActivity.months[1].lowerBounds.issues)
+tgFull.months[1].pulls = "invalid"
+assert(not Tangled.normalizeContributions(tgFull, "alice.test"))
+local aggregateActivity = Activity.fromCalendar(normalCalendar)
+assert(aggregateActivity.aggregate and aggregateActivity.months[6].values.contributions == 4)
+assert(aggregateActivity.months[6].values.commits == nil, "Aggregate contributions are not commits")
+local unknownLayout = Activity.layout({ months = Activity.months() })
+for _, metric in ipairs(Activity.metrics) do
+    for _, point in ipairs(unknownLayout.points[metric]) do
+        assert(point.value == nil)
+    end
+end
+print(
+    "Forges activity: six-month boundaries, monthly GitHub credit, Tangled list truncation, aggregate fallback and collision layout passed"
+)
+
 local ui = setmetatable({}, {
     __index = function(_, kind)
         return function(props, children)
@@ -1033,6 +1255,9 @@ local panel = {
     close = function() end,
     setNeedsFrameTick = function(value)
         wantsFrames = value
+    end,
+    setWantsSecondTicks = function(value)
+        secondTicks = value
     end,
 }
 local function panelEntry()
@@ -1235,7 +1460,7 @@ assert(find("button", function(props)
     return props.text == "Load older notifications"
 end)).props.onClick()
 assert(lastCommand.op == "notifications_more")
--- A complete 54-week calendar is built off the render callback in bounded chunks.
+-- All providers now use the same bounded six-month chart, not 378 native day cells.
 local graphSnapshot = {
     provider = "github",
     account = "octocat",
@@ -1247,92 +1472,98 @@ local graphSnapshot = {
     loading = {},
 }
 settings["shell.corner_radius_scale"] = 0
+local beforeChartNodes = nodeCreations
 noctalia.state.set("forges.snapshot", graphSnapshot)
-assert(wantsFrames and not find("row", function(props)
-    return props.key == "contribution-grid"
-end))
-for frame = 1, 14 do
-    local created = nodeCreations
-    onFrameTick()
-    assert(nodeCreations - created < 100, "Graph preparation must stay bounded per frame")
-end
-local grid = assert(find("row", function(props)
-    return props.key == "contribution-grid"
+local grid = assert(find("image", function(props)
+    return props.key:find("activity-chart-", 1, true) == 1
 end))
 assert(
-    #grid.children == 54 and not wantsFrames,
-    "Show the entire year rather than truncating graph weeks"
+    not wantsFrames and nodeCreations - beforeChartNodes < 100,
+    "Six-month SVG must not need progressive frame work"
 )
-local cellCount, dayCell = 0, nil
-walk(grid, function(node)
-    if node.kind == "box" and node.props.key then
-        cellCount += 1
-        dayCell = node
-        assert(node.props.radius == 0 and node.props.tooltip:find("contributions", 1, true))
-    end
-end)
-assert(cellCount == 378, "All bounded source calendar days must remain visible")
-dayCell.props.onClick()
-assert(find("label", function(props)
-    return props.text:find("contributions", 1, true) ~= nil
-end))
-assert(
-    lastPanel.children[3].props.key == "contribution-calendar",
-    "GitHub graph must stay above queue tabs and scrolling lists"
-)
-assert(not find("button", function(props)
-    return props.text == "Activity" or props.text == "Open GitHub profile"
-end))
-local oldGrid = grid
+assert(grid.props.width == 548 and grid.props.height == 210 and grid.props.fit == "contain")
+assert(imageFiles[grid.props.path]:find("<svg ", 1, true))
+assert(lastPanel.children[3].props.key == "activity-section", "Activity stays pinned above queues")
+local oldGrid, oldWrites = grid, imageWrites
 noctalia.state.set("forges.snapshot", graphSnapshot)
-local reusedGrid = find("row", function(props)
-    return props.key == "contribution-grid"
-end)
-assert(
-    reusedGrid == oldGrid and not wantsFrames,
-    "Unrelated snapshot publications must reuse the prepared calendar"
-)
-settings["shell.corner_radius_scale"] = 1.5
-onConfigChanged()
-assert(wantsFrames)
-onFrameTick()
+assert(find("image", function()
+    return true
+end) == oldGrid and imageWrites == oldWrites)
+settings["color.primary"] = "#bbccdd"
+assert(secondTicks)
+update()
+grid = assert(find("image", function()
+    return true
+end))
+assert(grid ~= oldGrid and grid.props.key ~= oldGrid.props.key and imageWrites == oldWrites + 1)
+assert(imageFiles[grid.props.path]:find("#bbccdd", 1, true), "Theme changes regenerate themed SVGs")
+local paletteWrites = imageWrites
+update()
+assert(imageWrites == paletteWrites, "Second ticks must not rewrite unchanged charts")
 onClose()
-assert(not wantsFrames)
+assert(not secondTicks)
 onOpen()
-for _ = 1, 14 do
-    onFrameTick()
-end
-grid = assert(find("row", function(props)
-    return props.key == "contribution-grid"
-end))
-assert(grid.children[1].children[1].props.radius == 3)
+assert(secondTicks)
+assert(find("image", function()
+    return true
+end) == grid and not wantsFrames)
 local pinnedGrid = grid
 graphSnapshot.view = "issues"
 noctalia.state.set("forges.snapshot", graphSnapshot)
-assert(lastPanel.children[3].props.key == "contribution-calendar")
-assert(find("row", function(props)
-    return props.key == "contribution-grid"
-end) == pinnedGrid, "Switching queues must retain the prepared pinned calendar")
+assert(lastPanel.children[3].props.key == "activity-section")
+assert(find("image", function()
+    return true
+end) == pinnedGrid)
+assert(find("button", function(props)
+    return props.key == "activity-month-1"
+end)).props.onClick()
+assert(find("label", function(props)
+    return props.text:find(Activity.months()[1].date, 1, true) == 1
+end))
 local sparseGraph = copy(graphData)
 sparseGraph.weeks[1].days[1] = false
 sparseGraph.weeks[#sparseGraph.weeks].days[7] = false
+sparseGraph.activity = Activity.fromCalendar(sparseGraph)
+sparseGraph.activity.months[6].values.contributions = 99
 graphSnapshot.contributions, graphSnapshot.versions.contributions = sparseGraph, 2
 noctalia.state.set("forges.snapshot", graphSnapshot)
-for _ = 1, 14 do
-    onFrameTick()
-end
-grid = assert(find("row", function(props)
-    return props.key == "contribution-grid"
+assert(find("image", function()
+    return true
+end) ~= pinnedGrid)
+local lastGoodImage = find("image", function()
+    return true
+end)
+failImageWrite = true
+sparseGraph.activity.months[6].values.contributions = 100
+graphSnapshot.versions.contributions = 3
+noctalia.state.set("forges.snapshot", graphSnapshot)
+assert(find("image", function()
+    return true
+end) == lastGoodImage, "Write failures retain same-account last-good image")
+assert(find("label", function(props)
+    return props.text:find("Could not write activity chart", 1, true) == 1
 end))
-for _, cell in ipairs({ grid.children[1].children[1], grid.children[#grid.children].children[7] }) do
-    assert(
-        cell.props.fill == "transparent"
-            and cell.props.opacity == 0
-            and not cell.props.onClick
-            and not cell.props.tooltip,
-        "Absent leading/future slots must be transparent, not black zero-activity days"
-    )
+failImageWrite = false
+noctalia.state.set("forges.snapshot", graphSnapshot)
+assert(find("image", function()
+    return true
+end) ~= lastGoodImage)
+local sameImage, sameWrites = find("image", function()
+    return true
+end), imageWrites
+graphSnapshot.versions.contributions = 4
+noctalia.state.set("forges.snapshot", graphSnapshot)
+assert(
+    find("image", function()
+        return true
+    end) == sameImage and imageWrites == sameWrites,
+    "Identical refreshed SVGs reuse their image and file"
+)
+local imageFileCount = 0
+for _ in pairs(imageFiles) do
+    imageFileCount += 1
 end
+assert(imageFileCount == 1, "Refreshes must not accumulate SVG files or leave temporary files")
 local tgCalendar = copy(graphData)
 tgCalendar.unit, tgCalendar.caption = "commits", "4 public commits in 2023"
 noctalia.state.set("forges.snapshot", {
@@ -1383,44 +1614,34 @@ local monthlySnapshot = {
     errors = {},
 }
 noctalia.state.set("forges.snapshot", monthlySnapshot)
-local monthlyNode = assert(find("graph", function(props)
-    return props.key == "monthly-contribution-graph"
+local monthlyNode = assert(find("image", function()
+    return true
 end))
-assert(
-    #monthlyNode.props.values == 12
-        and monthlyNode.props.values[12] == 1
-        and monthlyNode.props.values[1] == 0
-)
-assert(not wantsFrames and find("column", function(props)
-    return props.key == "monthly-contributions"
-end))
+assert(not wantsFrames and lastPanel.children[3].props.key == "activity-section")
 assert(not find("label", function(props)
     return props.text:find("Current streak", 1, true) ~= nil
-end), "Monthly counts must never imply daily streaks")
-onMonthlyGraphMove("1.0000")
-assert(find("label", function(props)
-    return props.text == today:sub(1, 7) .. " · 4 commits"
 end))
-onMonthlyGraphLeave()
+assert(find("button", function(props)
+    return props.key == "activity-month-6"
+end)).props.onClick()
 assert(find("label", function(props)
-    return props.text == tgMonthly.firstDate .. " — " .. tgMonthly.lastDate
+    return props.text:find(today:sub(1, 7), 1, true) == 1 and props.text:find("4 commits", 1, true)
 end))
 monthlySnapshot.loading = { contributions = true }
 monthlySnapshot.errors.contributions = "Temporary network failure"
 noctalia.state.set("forges.snapshot", monthlySnapshot)
-assert(find("graph", function(props)
-    return props.key == "monthly-contribution-graph"
+assert(find("image", function()
+    return true
 end) == monthlyNode)
 assert(find("label", function(props)
     return props.text == "Temporary network failure"
 end))
-monthlySnapshot.errors = {}
-monthlySnapshot.loading = {}
+monthlySnapshot.errors, monthlySnapshot.loading = {}, {}
 noctalia.state.set("forges.snapshot", monthlySnapshot)
 onClose()
 onOpen()
-assert(not wantsFrames and find("graph", function(props)
-    return props.key == "monthly-contribution-graph"
+assert(not wantsFrames and find("image", function()
+    return true
 end) == monthlyNode)
 local retainedTangledSnapshot = copy(values["forges.snapshot"])
 local glPanel = {
@@ -1436,10 +1657,7 @@ local glPanel = {
     errors = {},
 }
 noctalia.state.set("forges.snapshot", glPanel)
-assert(wantsFrames)
-for _ = 1, 14 do
-    onFrameTick()
-end
+assert(not wantsFrames)
 assert(find("label", function(props)
     return props.text == "Review assignment"
 end))
@@ -1470,45 +1688,57 @@ assert(find("button", function(props)
     return props.text == "Load older to-dos"
 end)).props.onClick()
 assert(lastCommand.op == "notifications_more")
-local retainedGitLabGrid = assert(find("row", function(props)
-    return props.key == "contribution-grid"
+local retainedGitLabGrid = assert(find("image", function()
+    return true
 end))
 local retainedSnapshot = copy(values["forges.snapshot"])
 noctalia.state.set("forges.snapshot", graphSnapshot)
-for _ = 1, 14 do
-    onFrameTick()
-end
-local retainedGitHubGrid = assert(find("row", function(props)
-    return props.key == "contribution-grid"
+local retainedGitHubGrid = assert(find("image", function()
+    return true
 end))
 noctalia.state.set("forges.snapshot", retainedSnapshot)
-assert(not wantsFrames, "Returning to GitLab must reuse its prepared graph immediately")
-assert(find("row", function(props)
-    return props.key == "contribution-grid"
+assert(not wantsFrames and find("image", function()
+    return true
 end) == retainedGitLabGrid)
 onClose()
 onOpen()
-assert(not wantsFrames and find("row", function(props)
-    return props.key == "contribution-grid"
+assert(not wantsFrames and find("image", function()
+    return true
 end) == retainedGitLabGrid)
 noctalia.state.set("forges.snapshot", graphSnapshot)
-assert(not wantsFrames and find("row", function(props)
-    return props.key == "contribution-grid"
+assert(find("image", function()
+    return true
 end) == retainedGitHubGrid)
 noctalia.state.set("forges.snapshot", retainedTangledSnapshot)
-assert(not wantsFrames and not find("row", function(props)
-    return props.key == "contribution-grid"
-end), "Tangled must never inherit another provider's daily calendar")
-assert(find("graph", function(props)
-    return props.key == "monthly-contribution-graph"
-end) == monthlyNode, "Returning from GitHub/GitLab must reuse Tangled's prepared monthly graph")
+assert(find("image", function()
+    return true
+end) == monthlyNode, "Each forge retains its own prepared chart")
 noctalia.state.set("forges.snapshot", graphSnapshot)
 local anotherAccount = copy(graphSnapshot)
 anotherAccount.account = "another-account"
+failImageWrite = true
 noctalia.state.set("forges.snapshot", anotherAccount)
-assert(wantsFrames and not find("row", function(props)
-    return props.key == "contribution-grid"
-end), "Never retain another account's graph during preparation")
+assert(not find("image", function()
+    return true
+end), "Never retain another account's SVG after write failure")
+assert(imageFiles[retainedGitHubGrid.props.path] == nil, "Clear the old account's cached file")
+failImageWrite = false
+noctalia.state.set("forges.snapshot", anotherAccount)
+assert(find("image", function()
+    return true
+end) ~= retainedGitHubGrid)
+local closedAccountImage = find("image", function()
+    return true
+end)
+onClose()
+local closedRenders = panelRenders
+anotherAccount.contributions = nil
+noctalia.state.set("forges.snapshot", anotherAccount)
+assert(
+    imageFiles[closedAccountImage.props.path] == nil and panelRenders == closedRenders,
+    "Closed panels clear invalidated private SVGs without rebuilding the UI"
+)
+onOpen()
 
 noctalia.state.set("forges.snapshot", {
     provider = "gitlab",
@@ -1570,5 +1800,5 @@ noctalia.state.set(
 )
 assert(tooltip:find("GitLab", 1, true))
 print(
-    "Forges: GitLab custom hosts, nested groups, merge requests/issues, instance/account invalidation, pinned contribution header, transparent calendar gaps, independent profile actions, provider/resource caches, inbox history/filters, account invalidation, race/error recovery and native surfaces passed"
+    "Forges: GitLab custom hosts, nested groups, merge requests/issues, instance/account invalidation, shared monthly SVG header, theme/file failure recovery, independent profile actions, provider/resource caches, inbox history/filters, account invalidation, race/error recovery and native surfaces passed"
 )
