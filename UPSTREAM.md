@@ -29,17 +29,19 @@ scaling.
   [`63150dc53560297140164083b4d14d4aaaf59bc8`](https://github.com/noctalia-dev/community-plugins/tree/63150dc53560297140164083b4d14d4aaaf59bc8/github-kanban)
   as `adam0/forges`, targeting API 34 rather than upstream API 43. Tangled via
   `tg` is the startup default, with a session provider switch and shared
-  repository/PR/issue lists; GitHub also has its restored contribution calendar
-  and a paged read/all/unread inbox. Per-provider/resource caches avoid unrelated
+  repository/PR/issue lists, plus native monthly activity. GitHub also has a
+  paged read/all/unread inbox. Per-provider/resource caches avoid unrelated
   refetches on navigation. Custom radii and
   outlines follow shell settings, and the panel defaults to floating near-click
   placement. See [Forges setup and scope](forges/SETUP.md) for retained features
   and intentional differences. Upstream declares MIT but supplies no separate
-  license file in this snapshot. The shared six-month activity layout is adapted
+  license file in this snapshot. The native six-month activity model is adapted
   from Tangled's `ProfileActivityChart.svelte` / `profileActivityChart.ts` at
   [`6598d2fc5d76dbdee20fae59801b6b35973d8836`](https://tangled.org/tangled.org/core/tree/6598d2fc5d76dbdee20fae59801b6b35973d8836/web/src/lib/components/profile).
-  The original MIT notice is retained in `forges/TANGLED-LICENSE`. The Luau port
-  uses native SVG images rather than importing Svelte or web scaffolding.
+  The original MIT notice is retained in `forges/TANGLED-LICENSE`. The Luau adaptation
+  preserves Tangled's layout with transparent native graph layers beneath a
+  six-column native label/glyph table;
+  it imports neither SVG images nor Svelte/web scaffolding.
 - **Keybind Cheatsheet:** synchronized the upstream 0.3.2 parser and panel,
   including staged parsing and progressive rendering to stay within callback
   CPU budgets, Fcitx5 hotkeys, sequential-binding grouping, modifier labels,

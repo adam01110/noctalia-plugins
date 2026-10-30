@@ -1,4 +1,4 @@
--- Tangled-style activity layout, adapted from tangled-core's profileActivityChart.ts (MIT).
+-- Native monthly activity, adapted from Tangled's ProfileActivityChart.svelte (MIT).
 -- See ../TANGLED-LICENSE for the original copyright and license.
 local Activity = {}
 Activity.monthLabels =
@@ -104,7 +104,7 @@ function Activity.github(raw)
     end
     return {
         months = months,
-        note = "GitHub contribution credit · each metric scaled independently",
+        note = "GitHub contribution credit",
     }
 end
 local TOP, BOTTOM, GAP = 20, 164, 28
@@ -193,6 +193,9 @@ function Activity.metricName(metric, provider)
     return metric == "pulls" and provider == "gitlab" and "merge requests" or NAMES[metric]
 end
 local function compact(n)
+    if n >= 1000000000 then
+        return string.format("%.1fb", n / 1000000000)
+    end
     if n >= 1000000 then
         return string.format("%.1fm", n / 1000000)
     end
@@ -223,155 +226,47 @@ function Activity.detail(activity, index, provider)
     end
     return table.concat(values, " · ")
 end
-local ICONS = {
-    commits = '<path d="M0 6h3m6 0h3"/><circle cx="6" cy="6" r="3"/>',
-    pulls = '<circle cx="3" cy="2" r="1.5"/><circle cx="3" cy="10" r="1.5"/><path d="M3 4v4m4-6h1q2 0 2 2v4m-3-6 2-2m-2 2 2 2"/><circle cx="10" cy="10" r="1.5"/>',
-    issues = '<circle cx="6" cy="6" r="5"/><circle cx="6" cy="6" r="0.7"/>',
-    repos = '<path d="M2 1h8v10H2zM4 6h4M6 4v4"/>',
-    contributions = '<path d="M0 10h2V6h3V2h3v6h4"/>',
-}
-function Activity.svg(activity, colors, provider)
-    local layout = Activity.layout(activity)
-    local parts = {
-        '<svg xmlns="http://www.w3.org/2000/svg" width="548" height="210" viewBox="0 0 548 210">',
-        '<rect width="548" height="210" fill="' .. colors.background .. '"/>',
-        '<rect x="340" width="208" height="210" fill="' .. colors.current .. '"/>',
-    }
-    for i = 2, 6 do
-        table.insert(
-            parts,
-            string.format(
-                '<path d="M%d 0V210" stroke="%s" stroke-opacity="0.45"/>',
-                layout.columns[i].left,
-                colors.border
-            )
-        )
+-- Sample Tangled's midpoint-control cubic at uniform x positions for ui.graph.
+function Activity.curveValues(first, last, height)
+    local start = (1 - first.y / height - 0.06) / 0.88
+    -- API34 starts its visible shader span at sample 2; keep the first anchor in that slot.
+    local values = { start, start }
+    for step = 0, 16 do
+        local x = step / 16
+        local t = x
+        for _ = 1, 5 do
+            local position = 1.5 * t - 1.5 * t * t + t * t * t
+            t -= (position - x) / (1.5 - 3 * t + 3 * t * t)
+        end
+        local y = first.y + (last.y - first.y) * (3 * t * t - 2 * t * t * t)
+        -- API34's shader reserves 6% at this plot height/line width; align native labels to it.
+        table.insert(values, (1 - y / height - 0.06) / 0.88)
     end
-    for _, metric in ipairs(layout.metrics) do
-        local points = layout.points[metric]
-        for i = 1, 5 do
-            local point, following = points[i], points[i + 1]
-            if point.value ~= nil and following.value ~= nil then
-                local color = following.value >= point.value and colors.rising or colors.falling
-                local dashed = (point.lowerBound or following.lowerBound)
-                        and ' stroke-dasharray="3 3"'
-                    or ""
-                table.insert(
-                    parts,
-                    string.format(
-                        '<path d="M%.2f %.2fC%.2f %.2f %.2f %.2f %.2f %.2f" fill="none" stroke="%s" stroke-opacity="0.38"%s/>',
-                        point.x,
-                        point.y,
-                        (point.x + following.x) / 2,
-                        point.y,
-                        (point.x + following.x) / 2,
-                        following.y,
-                        following.x,
-                        following.y,
-                        color,
-                        dashed
-                    )
-                )
-            end
-        end
-        local first, last = points[1], points[6]
-        if first.value ~= nil then
-            table.insert(
-                parts,
-                string.format(
-                    '<path d="M0 %.2fH%.2f" stroke="%s" stroke-opacity="0.3"/>',
-                    first.y,
-                    first.x,
-                    colors.rising
-                )
-            )
-        end
-        if last.value ~= nil then
-            table.insert(
-                parts,
-                string.format(
-                    '<path d="M%.2f %.2fH548" stroke="%s" stroke-opacity="0.3"/>',
-                    last.x,
-                    last.y,
-                    colors.rising
-                )
-            )
-        end
+    return values
+end
+function Activity.comparison(activity, index, metric)
+    local current, previous = activity.months[index], activity.months[index - 1]
+    if current.values[metric] == nil then
+        return "Not reported for this month", "on_surface_variant"
     end
-    for i, month in ipairs(activity.months) do
-        local current = i == 6
-        local background = current and colors.current or colors.background
-        for _, metric in ipairs(layout.metrics) do
-            local point = layout.points[metric][i]
-            local text = Activity.valueText(point.value, point.lowerBound, not current)
-            if current then
-                text ..= " " .. Activity.metricName(metric, provider)
-            end
-            local width = current and math.min(198, #text * 6.4 + 30) or 62
-            table.insert(
-                parts,
-                string.format(
-                    '<rect x="%.2f" y="%.2f" width="%.2f" height="22" fill="%s"/>',
-                    point.x - 3,
-                    point.y - 11,
-                    width,
-                    background
-                )
-            )
-            table.insert(
-                parts,
-                string.format(
-                    '<g transform="translate(%.2f %.2f)" stroke="%s" fill="none" stroke-width="1">%s</g>',
-                    point.x,
-                    point.y - 6,
-                    colors.text,
-                    ICONS[metric]
-                )
-            )
-            table.insert(
-                parts,
-                string.format(
-                    '<text x="%.2f" y="%.2f" font-family="sans-serif" font-size="11" fill="%s">%s</text>',
-                    point.x + 17,
-                    point.y + 4,
-                    colors.text,
-                    text
-                )
-            )
-            local previous = i > 1 and layout.points[metric][i - 1]
-            if
-                previous
-                and point.value ~= nil
-                and previous.value ~= nil
-                and not point.lowerBound
-                and not previous.lowerBound
-            then
-                local arrow = point.value > previous.value and "↗"
-                    or (point.value < previous.value and "↘" or "–")
-                table.insert(
-                    parts,
-                    string.format(
-                        '<text x="%.2f" y="%.2f" font-family="sans-serif" font-size="10" fill="%s">%s</text>',
-                        point.x + (current and (22 + #text * 6.4) or 49),
-                        point.y + 4,
-                        point.value >= previous.value and colors.rising or colors.falling,
-                        arrow
-                    )
-                )
-            end
-        end
-        table.insert(
-            parts,
-            string.format(
-                '<text x="%d" y="198" font-family="sans-serif" font-size="11" fill="%s">%s%s</text>',
-                layout.columns[i].left + 8,
-                colors.text,
-                month.label,
-                current and " · now" or ""
-            )
-        )
+    if current.lowerBounds[metric] then
+        return "Lower bound · exact change unavailable", "on_surface_variant"
     end
-    table.insert(parts, "</svg>")
-    return table.concat(parts)
+    if not previous then
+        return "First month in this window", "on_surface_variant"
+    end
+    if previous.values[metric] == nil or previous.lowerBounds[metric] then
+        return "Previous month incomplete · change unavailable", "on_surface_variant"
+    end
+    local delta = current.values[metric] - previous.values[metric]
+    local suffix = " vs " .. previous.label
+    if current.date == os.date("!%Y-%m", os.time()) then
+        suffix ..= " (full month)"
+    end
+    if delta == 0 then
+        return "No change" .. suffix, "on_surface_variant"
+    end
+    return (delta > 0 and "↗ +" or "↘ ") .. tostring(delta) .. suffix,
+        delta > 0 and "primary" or "error"
 end
 return Activity

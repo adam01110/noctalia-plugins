@@ -1,11 +1,11 @@
 id = "adam0/forges"
 name = "Forges"
-version = "0.7.0"
+version = "0.7.1"
 plugin_api = 34
 author = "Shangshui0302, Tangled contributors, Adam0"
 license = "MIT"
 icon = "git-branch"
-description = "Cached Tangled, GitHub, and GitLab work queues with shared monthly activity charts, GitHub notifications, and GitLab to-dos."
+description = "Cached Tangled, GitHub, and GitLab work queues with interactive native monthly activity, GitHub notifications, and GitLab to-dos."
 tags = ["bar", "panel", "service", "development", "productivity"]
 dependencies = ["tg", "gh", "glab", "curl", "xdg-open"]
 

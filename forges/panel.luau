@@ -167,139 +167,243 @@ local function workRow(item)
         }
     )
 end
-local calendars = {}
-local calendar = {}
-local imageRevision = 0
+local activityCaches = {}
 local function supportsContributions()
     if snapshot.capabilities then
         return snapshot.capabilities.contributions == true
     end
     return snapshot.provider ~= "tangled"
 end
-local function clearCalendar(provider)
-    local cached = calendars[provider]
-    if cached and cached.path then
-        noctalia.removeFile(cached.path)
+local function activityIdentity(value)
+    return value.provider .. ":" .. (value.base_url or "") .. ":" .. (value.account or "")
+end
+-- Remove private image files left by the previous renderer; native charts never write data.
+local oldChartDirectory = noctalia.pluginDataDir()
+if oldChartDirectory then
+    for _, provider in ipairs({ "tangled", "github", "gitlab" }) do
+        noctalia.removeFile(oldChartDirectory .. "/activity-" .. provider .. ".svg")
+        noctalia.removeFile(oldChartDirectory .. "/activity-" .. provider .. ".svg.tmp")
     end
-    calendars[provider] = nil
 end
-local function chartColors()
-    local function color(role, fallback)
-        local value = noctalia.getColor(role)
-        return type(value) == "string" and value:match("^#%x%x%x%x%x%x$") and value or fallback
+local function monthIndex(cached)
+    for i, month in ipairs(cached.data.months) do
+        if month.date == cached.selectedMonth then
+            return i
+        end
     end
-    return {
-        background = color("surface", "#202124"),
-        current = color("surface_variant", "#303134"),
-        text = color("on_surface", "#e8eaed"),
-        border = color("outline", "#777777"),
-        rising = color("primary", "#a8c7fa"),
-        falling = color("error", "#f28b82"),
-    }
+    return #cached.data.months
 end
-local function paletteKey(colors)
-    return table.concat({
-        colors.background,
-        colors.current,
-        colors.text,
-        colors.border,
-        colors.rising,
-        colors.falling,
-    }, ":")
-end
-local function prepareCalendar()
-    local data = snapshot.contributions
-    if type(data) ~= "table" then
+local function prepareActivity()
+    if type(snapshot.contributions) ~= "table" then
         return nil
     end
-    local identity = snapshot.provider
-        .. ":"
-        .. (snapshot.base_url or "")
-        .. ":"
-        .. (snapshot.account or "")
-    local cached = calendars[snapshot.provider]
+    local identity = activityIdentity(snapshot)
+    local cached = activityCaches[snapshot.provider]
     if cached and cached.identity ~= identity then
-        clearCalendar(snapshot.provider)
         cached = nil
     end
-    local colors = chartColors()
-    local key = identity
-        .. ":"
-        .. tostring((snapshot.versions or {}).contributions or 0)
-        .. ":"
-        .. tostring((snapshot.versions or {}).activity or 0)
-        .. ":"
-        .. paletteKey(colors)
+    local versions = snapshot.versions or {}
+    local key = tostring(versions.contributions or 0) .. ":" .. tostring(versions.activity or 0)
     if not cached or cached.key ~= key then
-        local activity = Activity.fromCalendar(data)
-        local svg = Activity.svg(activity, colors, snapshot.provider)
-        if cached and cached.svg == svg then
-            cached.key, cached.data, cached.error = key, activity, nil
-            cached.palette = paletteKey(colors)
-            calendar = cached
-            return activity
+        local data = Activity.fromCalendar(snapshot.contributions)
+        local nextCache = {
+            identity = identity,
+            key = key,
+            data = data,
+            layout = Activity.layout(data),
+            selectedMonth = cached and cached.selectedMonth or data.months[#data.months].date,
+            metric = cached and cached.metric,
+        }
+        local selected = data.months[monthIndex(nextCache)]
+        local firstReported
+        for _, metric in ipairs(nextCache.layout.metrics) do
+            if selected.values[metric] ~= nil then
+                firstReported = firstReported or metric
+            end
         end
-        local directory = noctalia.pluginDataDir()
-        local path = directory and (directory .. "/activity-" .. snapshot.provider .. ".svg")
-        local temporary = path and (path .. ".tmp")
-        local written = path
-            and noctalia.mkdirAll(directory)
-            and noctalia.writeFile(temporary, svg)
-            and noctalia.renameFile(temporary, path)
-        if temporary then
-            noctalia.removeFile(temporary)
+        if not nextCache.metric or selected.values[nextCache.metric] == nil then
+            nextCache.metric = firstReported or nextCache.layout.metrics[1]
         end
-        if written then
-            imageRevision += 1
-            cached = {
-                key = key,
-                identity = identity,
-                data = activity,
-                path = path,
-                svg = svg,
-                palette = paletteKey(colors),
-                selectedMonth = cached and cached.selectedMonth or 6,
-                -- A new image key forces API34 to reread the bounded per-provider SVG file.
-                node = ui.image({
-                    key = "activity-chart-" .. tostring(imageRevision),
-                    path = path,
-                    width = 548,
-                    height = 210,
-                    fit = "contain",
-                    tooltip = "Monthly activity · each metric scaled independently · select a month below for exact counts",
-                }),
-            }
-            calendars[snapshot.provider] = cached
-        else
-            cached = cached or { identity = identity, data = activity, selectedMonth = 6 }
-            cached.error = "Could not write activity chart. Monthly counts remain available below."
-        end
+        nextCache.selectedMonth = selected.date
+        cached = nextCache
+        activityCaches[snapshot.provider] = cached
     end
-    if cached.key == key then
-        cached.error = nil
-    end
-    calendar = cached
-    return cached.data
+    return cached
 end
-local function contributionSection()
-    if not supportsContributions() then
-        return ui.row(
-            { key = "external-activity", gap = 8, align = "center", justify = "space_between" },
-            {
-                label("Activity", 14),
-                ui.button({
-                    text = "Open profile activity",
-                    controlSize = "sm",
-                    onClick = function()
-                        send({ op = "profile", provider = snapshot.provider })
-                    end,
-                }),
-            }
+local function activeChart(cached)
+    return opened and activityCaches[snapshot.provider] == cached
+end
+local function curveLayers(cached)
+    if cached.curves then
+        return cached.curves
+    end
+    local layout, layers = cached.layout, {}
+    for _, metric in ipairs(layout.metrics) do
+        for i = 1, #cached.data.months - 1 do
+            local first, last = layout.points[metric][i], layout.points[metric][i + 1]
+            if
+                first.value ~= nil
+                and last.value ~= nil
+                and not first.lowerBound
+                and not last.lowerBound
+            then
+                local left, width = first.x + 7, last.x - first.x
+                table.insert(
+                    layers,
+                    ui.row({
+                        key = "activity-curve-layer-" .. metric .. "-" .. tostring(i),
+                        width = layout.width,
+                        height = layout.height,
+                        gap = 0,
+                    }, {
+                        ui.box({ width = left, height = layout.height }),
+                        ui.graph({
+                            key = "activity-curve-" .. metric .. "-" .. tostring(i),
+                            width = width,
+                            height = layout.height,
+                            values = Activity.curveValues(first, last, layout.height),
+                            color = last.value >= first.value and "primary" or "error",
+                            lineWidth = 1,
+                            fillOpacity = 0,
+                            opacity = 0.35,
+                        }),
+                        ui.box({ width = layout.width - left - width, height = layout.height }),
+                    })
+                )
+            end
+        end
+    end
+    cached.curves = layers
+    return layers
+end
+local METRIC_ICONS = {
+    pulls = "git-pull-request",
+    commits = "git-commit",
+    repos = "git-branch",
+    issues = "circle-dot",
+    contributions = "chart-line",
+}
+local function activityStat(cached, metric, index)
+    local layout, month = cached.layout, cached.data.months[index]
+    local point = layout.points[metric][index]
+    local current, selected =
+        index == #cached.data.months, cached.selectedMonth == month.date and cached.metric == metric
+    local text = Activity.valueText(point.value, point.lowerBound, true)
+    if current then
+        text ..= " " .. Activity.metricName(metric, snapshot.provider)
+    end
+    local children = {
+        ui.glyph({
+            name = METRIC_ICONS[metric],
+            size = 14,
+            color = selected and "primary" or "on_surface_variant",
+        }),
+        ui.label({
+            text = text,
+            fontSize = current and 12 or 11,
+            color = selected and "primary" or (current and "on_surface" or "on_surface_variant"),
+            maxLines = 1,
+        }),
+    }
+    local previous = layout.points[metric][index - 1]
+    if
+        previous
+        and previous.value ~= nil
+        and point.value ~= nil
+        and not previous.lowerBound
+        and not point.lowerBound
+        and (current or #text <= 3)
+    then
+        local delta = point.value - previous.value
+        table.insert(
+            children,
+            ui.glyph({
+                name = delta == 0 and "minus"
+                    or (delta > 0 and "arrow-up-right" or "arrow-down-right"),
+                size = 12,
+                color = delta == 0 and "on_surface_variant" or (delta > 0 and "primary" or "error"),
+            })
         )
     end
-    local data = prepareCalendar()
-    if not data then
-        return ui.column({ key = "contribution-calendar", height = 170, justify = "center" }, {
+    return ui.row({
+        key = "activity-stat-" .. month.date .. "-" .. metric,
+        height = 26,
+        gap = 3,
+        align = "center",
+        fill = (current or selected) and "surface_variant" or "surface",
+        radius = 3,
+        tooltip = month.date
+            .. " · "
+            .. Activity.valueText(point.value, point.lowerBound, false)
+            .. " "
+            .. Activity.metricName(metric, snapshot.provider),
+        onClick = point.value ~= nil and function()
+            if activeChart(cached) then
+                cached.selectedMonth, cached.metric = month.date, metric
+                render()
+            end
+        end or nil,
+    }, children)
+end
+local function activityLabels(cached)
+    local layout, columns = cached.layout, {}
+    for i, month in ipairs(cached.data.months) do
+        local sorted = table.clone(layout.metrics)
+        table.sort(sorted, function(a, b)
+            return layout.points[a][i].y < layout.points[b][i].y
+        end)
+        local children, cursor = {}, 0
+        for _, metric in ipairs(sorted) do
+            local top = layout.points[metric][i].y - 13
+            if top > cursor then
+                table.insert(children, ui.box({ height = top - cursor }))
+            end
+            table.insert(children, activityStat(cached, metric, i))
+            cursor = top + 26
+        end
+        table.insert(children, ui.box({ height = 186 - cursor }))
+        table.insert(
+            children,
+            ui.label({
+                text = month.label .. (i == #cached.data.months and " · now" or ""),
+                height = 24,
+                fontSize = 12,
+                maxLines = 1,
+                color = i == #cached.data.months and "on_surface" or "on_surface_variant",
+            })
+        )
+        local parts = {}
+        if i > 1 then
+            table.insert(
+                parts,
+                ui.box({ width = 1, height = layout.height, fill = "outline/0.25" })
+            )
+        end
+        table.insert(
+            parts,
+            ui.column({
+                key = "activity-column-" .. month.date,
+                width = layout.columns[i].width - (i > 1 and 1 or 0),
+                height = layout.height,
+                gap = 0,
+                paddingH = i > 1 and 7 or 8,
+                align = "start",
+            }, children)
+        )
+        table.insert(
+            columns,
+            ui.row({ width = layout.columns[i].width, height = layout.height, gap = 0 }, parts)
+        )
+    end
+    return ui.row(
+        { key = "activity-labels", width = layout.width, height = layout.height, gap = 0 },
+        columns
+    )
+end
+local function contributionSection()
+    local cached = supportsContributions() and prepareActivity() or nil
+    if not cached then
+        return ui.column({ key = "activity-unavailable", gap = 6 }, {
             label(
                 (snapshot.errors or {}).contributions
                     or (
@@ -317,43 +421,65 @@ local function contributionSection()
             }),
         })
     end
-    local months = {}
-    for i, month in ipairs(data.months) do
-        table.insert(
-            months,
-            ui.button({
-                key = "activity-month-" .. tostring(i),
-                text = month.label,
-                controlSize = "sm",
-                flexGrow = 1,
-                tooltip = Activity.detail(data, i, snapshot.provider),
-                onClick = function()
-                    calendar.selectedMonth = i
-                    render()
-                end,
-            })
-        )
+    local data, layout = cached.data, cached.layout
+    local current = layout.columns[#layout.columns]
+    local layers = {
+        ui.row(
+            { key = "activity-backdrop", width = layout.width, height = layout.height, gap = 0 },
+            {
+                ui.box({ width = current.left, height = layout.height }),
+                ui.box({
+                    width = current.width,
+                    height = layout.height,
+                    fill = "surface_variant",
+                }),
+            }
+        ),
+    }
+    for _, curve in ipairs(curveLayers(cached)) do
+        table.insert(layers, curve)
     end
-    local children = { label("Activity · last 6 months", 14) }
-    if calendar.node then
-        table.insert(children, calendar.node)
-    end
-    table.insert(children, ui.row({ key = "activity-months", gap = 2 }, months))
-    table.insert(
-        children,
-        label(Activity.detail(data, calendar.selectedMonth or 6, snapshot.provider), 11)
-    )
-    table.insert(children, label((data.note or "") .. " · current month partial", 11))
-    if calendar.error then
-        table.insert(children, label(calendar.error, 11, "error"))
+    table.insert(layers, activityLabels(cached))
+    local index = monthIndex(cached)
+    local month, metric = data.months[index], cached.metric
+    local change, color = Activity.comparison(data, index, metric)
+    local children = {
+        label("Activity · last 6 months", 14),
+        -- API34 Flex preserves negative gaps: equal-height layers share the same origin.
+        ui.column({
+            key = "activity-overlay",
+            width = layout.width,
+            height = layout.height,
+            gap = -layout.height,
+        }, layers),
+        ui.row(
+            { key = "activity-inspector", justify = "space_between", align = "center", gap = 6 },
+            {
+                label(
+                    month.date
+                        .. " · "
+                        .. Activity.valueText(
+                            month.values[metric],
+                            month.lowerBounds[metric],
+                            false
+                        )
+                        .. " "
+                        .. Activity.metricName(metric, snapshot.provider),
+                    12,
+                    "on_surface"
+                ),
+                label(change, 11, color),
+            }
+        ),
+        label("Independent scales · current month partial · select a count for details", 11),
+    }
+    if data.note and data.note ~= "" then
+        table.insert(children, label(data.note, 11))
     end
     if (snapshot.errors or {}).contributions then
         table.insert(children, label(snapshot.errors.contributions, 11, "error"))
     end
     return ui.column({ key = "activity-section", gap = 6 }, children)
-end
-function onFrameTick()
-    panel.setNeedsFrameTick(false)
 end
 render = function()
     if not opened then
@@ -363,9 +489,7 @@ render = function()
         tab = "repositories"
     end
     if not supportsContributions() or not snapshot.contributions then
-        clearCalendar(snapshot.provider)
-        calendar = {}
-        panel.setNeedsFrameTick(false)
+        activityCaches[snapshot.provider] = nil
     end
     local forge = snapshot.provider == "github" and "GitHub"
         or (snapshot.provider == "gitlab" and "GitLab" or "Tangled")
@@ -735,12 +859,8 @@ noctalia.state.watch("forges.snapshot", function(value)
         query, repositoryDraft, inputError = "", "", ""
         notificationFilter, inboxPage = "all", 1
     end
-    local cached = calendars[value.provider]
-    local identity = (value.provider or "")
-        .. ":"
-        .. (value.base_url or "")
-        .. ":"
-        .. (value.account or "")
+    local cached = activityCaches[value.provider]
+    local identity = activityIdentity(value)
     if
         cached
         and (
@@ -749,7 +869,7 @@ noctalia.state.watch("forges.snapshot", function(value)
             or (value.capabilities and value.capabilities.contributions == false)
         )
     then
-        clearCalendar(value.provider)
+        activityCaches[value.provider] = nil
     end
     snapshot = value
     tab = snapshot.view == "overview" and "repositories" or (snapshot.view or "repositories")
@@ -757,16 +877,11 @@ noctalia.state.watch("forges.snapshot", function(value)
 end)
 function onOpen()
     opened = true
-    panel.setWantsSecondTicks(true)
+    panel.setWantsSecondTicks(false)
     render()
 end
 function onClose()
     opened = false
     panel.setWantsSecondTicks(false)
     panel.setNeedsFrameTick(false)
-end
-function update()
-    if opened and calendar.data and calendar.palette ~= paletteKey(chartColors()) then
-        render()
-    end
 end

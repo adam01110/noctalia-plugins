@@ -8,7 +8,6 @@ import subprocess
 import sys
 import tempfile
 import tomllib
-import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -109,7 +108,7 @@ with tempfile.TemporaryDirectory(prefix="noctalia-plugin-tests-") as directory:
     activity_test.write_text((ROOT / "tests/forges-activity.luau").read_text().replace(
         "-- ACTIVITY_SOURCE", (ROOT / "forges/lib/activity.luau").read_text()
     ))
-    previous_svg = None
+    previous_activity = None
     for timezone in ("UTC", "Europe/Amsterdam", "America/Los_Angeles"):
         result = subprocess.run(
             [sys.argv[1] if len(sys.argv) > 1 else "luau", str(activity_test)],
@@ -118,13 +117,9 @@ with tempfile.TemporaryDirectory(prefix="noctalia-plugin-tests-") as directory:
         if result.returncode:
             print(result.stderr, file=sys.stderr)
             sys.exit(result.returncode)
-        svg = ET.fromstring(result.stdout.strip())
-        assert svg.tag == "{http://www.w3.org/2000/svg}svg"
-        assert svg.attrib["viewBox"] == "0 0 548 210"
-        assert any("C" in path.attrib.get("d", "") for path in svg.iter("{http://www.w3.org/2000/svg}path"))
-        assert previous_svg is None or previous_svg == result.stdout
-        previous_svg = result.stdout
-    print("Forges activity: SVG XML and UTC boundaries identical in UTC, Amsterdam and Los Angeles", flush=True)
+        assert previous_activity is None or previous_activity == result.stdout
+        previous_activity = result.stdout
+    print("Forges activity: Tangled native geometry and UTC boundaries identical in UTC, Amsterdam and Los Angeles", flush=True)
     forges_test = Path(directory) / "forges.luau"
     source = (ROOT / "tests/forges.luau").read_text()
     for marker, filename in (
