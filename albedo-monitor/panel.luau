@@ -83,7 +83,7 @@ local function resetCountdown(epoch)
     end
     local seconds = epoch - os.time()
     if seconds <= 0 then
-        return "Resetting now"
+        return "Reset passed · awaiting provider update"
     end
     local days = math.floor(seconds / 86400)
     local hours = math.floor((seconds % 86400) / 3600)
@@ -98,7 +98,12 @@ end
 
 local function windowRow(window, stale, radius)
     local remaining = window.remaining_percent
+    local measured = window.status == ""
+        or window.status == "ok"
+        or window.status == "warning"
+        or window.status == "exhausted"
     local old = stale
+        or not measured
         or window.stale
         or (window.resets_at_epoch ~= nil and window.resets_at_epoch <= os.time())
     local color = "primary"
@@ -108,9 +113,12 @@ local function windowRow(window, stale, radius)
         color = "error"
     end
 
-    local value = remaining ~= nil and (tostring(math.floor(remaining)) .. "%") or "Unknown"
-    if old then
-        value = value .. " · stale"
+    local value = remaining ~= nil and (tostring(math.floor(remaining)) .. "% remaining")
+        or "Unknown"
+    if not measured then
+        value = "Unavailable"
+    elseif old and remaining ~= nil then
+        value = "Last known " .. tostring(math.floor(remaining)) .. "% · stale"
     end
 
     local rows = {
@@ -120,7 +128,7 @@ local function windowRow(window, stale, radius)
         }),
     }
 
-    if remaining ~= nil then
+    if remaining ~= nil and not old then
         rows[#rows + 1] = ui.progress({
             progress = remaining / 100,
             fill = color,
@@ -133,8 +141,20 @@ local function windowRow(window, stale, radius)
     if window.resets_at_epoch ~= nil or window.resets_at ~= "" then
         rows[#rows + 1] = label(resetCountdown(window.resets_at_epoch), 12, "on_surface_variant")
     end
-    if window.status ~= "" and window.status ~= "ok" then
+    if not old and window.status ~= "" and window.status ~= "ok" then
         rows[#rows + 1] = label(window.status, 12, "on_surface_variant")
+    end
+    if window.observed_at_epoch ~= nil and window.observed_at_epoch > os.time() + 60 then
+        rows[#rows + 1] = label("Quota check time is in the future", 12, "tertiary")
+    elseif window.observed_at_epoch ~= nil then
+        local seconds = math.max(0, os.time() - window.observed_at_epoch)
+        local age = seconds < 60 and "just now"
+            or seconds < 3600 and (tostring(math.floor(seconds / 60)) .. "m ago")
+            or seconds < 86400 and (tostring(math.floor(seconds / 3600)) .. "h ago")
+            or (tostring(math.floor(seconds / 86400)) .. "d ago")
+        rows[#rows + 1] = label("Quota checked " .. age, 12, "on_surface_variant")
+    elseif old then
+        rows[#rows + 1] = label("Quota check time unavailable", 12, "on_surface_variant")
     end
 
     return ui.column({ gap = 4, paddingV = 4 }, rows)

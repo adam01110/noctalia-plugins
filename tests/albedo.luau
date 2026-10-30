@@ -175,7 +175,7 @@ local function sample()
                         remaining_percent = 63,
                         resets_at = "2026-10-17T12:00:00Z",
                         resets_at_epoch = now + 7200,
-                        observed_at = "2026-10-17T10:00:00Z",
+                        observed_at = hostOs.date("!%Y-%m-%dT%H:%M:%SZ", now),
                         stale = false,
                     },
                     { label = "Weekly", remaining_percent = 0, stale = true },
@@ -324,7 +324,7 @@ request()
 reply(malformed)
 assert(#state.snapshot.sessions == 1 and state.snapshot.sessions[1].status == "unknown")
 local windows = state.snapshot.accounts[1].windows
-assert(windows[1].remaining_percent == 100 and windows[2].remaining_percent == 0)
+assert(windows[1].remaining_percent == nil and windows[2].remaining_percent == nil)
 assert(
     windows[3].remaining_percent == nil
         and windows[4].remaining_percent == nil
@@ -385,7 +385,7 @@ for _, case in ipairs({
     settingReads = 0
     noctalia.state.set("snapshot", state.snapshot)
     assert(settingReads == 2, "Read theme scale once each for bar and open panel")
-    checkProgressRadius(lastPanel, case.radius, 2)
+    checkProgressRadius(lastPanel, case.radius, 1)
     checkProgressRadius(lastBar, case.radius, 1)
     local scale = case.radius / 2
     assert(
@@ -476,7 +476,7 @@ for index = 1, 6 do
                 stale = false,
                 status = "ok",
                 resets_at = "2026-10-17T12:00:00Z",
-                observed_at = "2026-10-17T10:00:00Z",
+                observed_at = hostOs.date("!%Y-%m-%dT%H:%M:%SZ", now),
             },
             { label = "Weekly", remaining_percent = 100 - index, stale = false },
         },
@@ -741,8 +741,8 @@ for _, case in ipairs({
     { seconds = 3 * 3600 + 45 * 60, text = "Resets in 3h 45m" },
     { seconds = 12 * 60, text = "Resets in 12m" },
     { seconds = 59, text = "Resets in 1m" },
-    { seconds = 0, text = "Resetting now" },
-    { seconds = -60, text = "Resetting now" },
+    { seconds = 0, text = "Reset passed · awaiting provider update" },
+    { seconds = -60, text = "Reset passed · awaiting provider update" },
 }) do
     local deadline = sample()
     deadline.accounts[1].windows[1].resets_at_epoch = now + case.seconds
@@ -813,6 +813,79 @@ for _, value in ipairs({
     assert(state.snapshot.accounts[1].windows[1].resets_at_epoch == nil)
     contains(lastPanel, "Reset unavailable")
 end
+
+-- A missing native callback cannot wedge the plugin or let an old reply win.
+request()
+local abandonedReply = pending
+pending = nil
+now = now + 16
+request()
+reply(sample())
+local recoveredSnapshot = state.snapshot
+abandonedReply({
+    exitCode = 0,
+    stdout = { version = 1, online = false, sessions = {}, accounts = {} },
+})
+assert(state.snapshot == recoveredSnapshot and state.snapshot.online)
+
+-- A new daemon snapshot is not a new provider observation.
+local oldQuota = sample()
+oldQuota.accounts = { oldQuota.accounts[1] }
+oldQuota.accounts[1].windows = {
+    {
+        label = "5h window",
+        remaining_percent = 0,
+        status = "exhausted",
+        stale = false,
+        observed_at_epoch = now - 4 * 86400,
+        resets_at_epoch = now - 3600,
+    },
+}
+request()
+reply(oldQuota)
+contains(lastBar, "Stale")
+contains(lastPanel, "Last known 0% · stale")
+contains(lastPanel, "Quota checked 4d ago")
+contains(lastPanel, "Reset passed · awaiting provider update")
+assert(#collectNodes(lastPanel, "progress") == 0)
+assert(#collectNodes(lastBar, "progress") == 0)
+assert(not string.find(texts(lastPanel), "exhausted", 1, true))
+assert(not string.find(texts(lastPanel), "Resetting now", 1, true))
+
+local futureQuota = sample()
+futureQuota.accounts = { futureQuota.accounts[1] }
+futureQuota.accounts[1].windows = {
+    { label = "Session", remaining_percent = 50, stale = false, observed_at_epoch = now + 120 },
+}
+request()
+reply(futureQuota)
+contains(lastBar, "Stale")
+contains(lastPanel, "Quota check time is in the future")
+assert(#collectNodes(lastPanel, "progress") == 0)
+
+-- Cached data ages out even when a request is still running.
+local aging = sample()
+aging.accounts = { aging.accounts[1] }
+aging.accounts[1].windows = {
+    { label = "Session", remaining_percent = 63, stale = false, observed_at_epoch = now - 1795 },
+}
+request()
+reply(aging)
+contains(lastBar, "63%")
+request()
+local requestsBeforeExpiry = started
+now = now + 10
+serviceUpdate()
+assert(started == requestsBeforeExpiry, "Expiry cannot overlap requests")
+contains(lastBar, "Stale")
+assert(#collectNodes(lastPanel, "progress") == 0)
+reply(aging)
+contains(lastBar, "Stale")
+aging.accounts[1].windows[1].observed_at_epoch = now
+request()
+reply(aging)
+contains(lastBar, "63%")
+assert(#collectNodes(lastPanel, "progress") == 1)
 
 print(
     "Albedo monitor: minute polling, relevant account meters, active sessions, countdowns, startup argv, recovery and themed cards passed"

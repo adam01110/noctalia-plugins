@@ -142,8 +142,17 @@ local function accountSegment(account, index, selected, online, radius)
     if selected ~= nil then
         children[#children + 1] = windowMeter(account, selected, 1, online, radius)
     else
+        local value = "Unavailable"
+        if account.error == "" then
+            for _, window in ipairs(account.windows) do
+                if windowValue(account, window, online) == "Stale" then
+                    value = "Stale"
+                    break
+                end
+            end
+        end
         children[#children + 1] =
-            ui.label({ text = "—", fontSize = 12, color = "on_surface_variant" })
+            ui.label({ text = value, fontSize = 12, color = "on_surface_variant" })
     end
 
     return ui.row({ key = "account-" .. tostring(index), align = "center", gap = 5 }, children)
@@ -165,12 +174,23 @@ local function accountTooltip(account, online, selected)
 
     for _, window in ipairs(account.windows) do
         local value = windowValue(account, window, online)
-        if value == "Stale" and window.remaining_percent ~= nil then
+        local stale = value == "Stale"
+        if stale and window.remaining_percent ~= nil then
             value = tostring(math.floor(window.remaining_percent)) .. "% · stale"
         end
         local prefix = window == selected and "Bar · " or ""
         lines[#lines + 1] = prefix .. window.label .. ": " .. value
-        if window.status ~= "" and window.status ~= "ok" then
+        if
+            stale
+            and window.observed_at_epoch ~= nil
+            and window.observed_at_epoch > os.time() + 60
+        then
+            lines[#lines + 1] = "Quota check time is in the future"
+        elseif stale and window.observed_at_epoch ~= nil then
+            local minutes = math.max(0, math.floor((os.time() - window.observed_at_epoch) / 60))
+            lines[#lines + 1] = "Last checked " .. tostring(minutes) .. "m ago"
+        end
+        if not stale and window.status ~= "" and window.status ~= "ok" then
             lines[#lines + 1] = window.status
         end
     end

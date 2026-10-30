@@ -32,19 +32,24 @@ still works; automatic startup requires an updated helper.
 - Each account gets one compact meter and **remaining** percentage, choosing the
   fresh five-hour window unless the seven-day window has 5% or less remaining.
   If the five-hour window is unavailable, the lowest fresh, healthy window is used.
+  Accounts without a current reading show `Stale` or `Unavailable`.
   Provider/account names and other windows stay in the tooltip and panel.
 - The panel shows only working or waiting sessions, including child agents.
   Session and account cards follow the shell’s corner-radius setting. Account
-  limits show reset countdowns instead of dates; observation timestamps are hidden.
+  limits show reset countdowns and the age of the provider’s last quota check.
 - Hover for account/window identities, quota errors and snapshot time.
 - Click to open the panel. Right-click or use its refresh button to read a new
   snapshot. Refreshing does not force a provider quota poll.
 - Offline and failed snapshots never count last-known sessions as active.
   Retained data is explicitly stale. Quotas older than 30 minutes or past their
   reset show as stale in the bar, without a live percentage or meter. The tooltip
-  and panel retain explicitly labeled last-known percentages.
+  and panel retain explicitly labeled last-known percentages, without live meters
+  or old exhaustion warnings. Elapsed resets await a provider update. Snapshot
+  time is not quota observation time.
 - Unreported or unjoinable limits show as unavailable, never as unlimited.
-  Account identity matching belongs to the helper, not the UI.
+  Account identity matching belongs to the helper, not the UI. Invalid balances
+  remain unknown. Lost callbacks expire after 15 seconds; late replies cannot
+  overwrite recovery.
 
 The service reads a snapshot every minute by default, once per plugin even with
 several widgets. All returned accounts appear in the bar, with one relevant

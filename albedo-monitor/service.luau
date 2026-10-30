@@ -3,6 +3,8 @@
 local SESSION_RANKS = { working = 1, waiting = 2, unknown = 3, idle = 4 }
 
 local inFlight = false
+local requestStarted = 0
+local requestId = 0
 local startupUnsupportedPath = nil
 local snapshot = nil
 
@@ -73,12 +75,15 @@ local function legacyResetEpoch(value)
 end
 
 local function normalizeWindow(window)
-    local remaining = tonumber(window.remaining_percent)
+    local remaining = window.remaining_percent
 
-    -- Unknown and non-finite quota values must not become an available balance.
-    if remaining ~= nil and remaining == remaining and math.abs(remaining) ~= math.huge then
-        remaining = math.clamp(remaining, 0, 100)
-    else
+    -- Invalid quota is unknown, not a clamped empty or full balance.
+    if
+        type(remaining) ~= "number"
+        or remaining ~= remaining
+        or remaining < 0
+        or remaining > 100
+    then
         remaining = nil
     end
 
@@ -94,14 +99,29 @@ local function normalizeWindow(window)
         resetsAtEpoch = legacyResetEpoch(window.resets_at)
     end
 
+    local observedAt = window.observed_at_epoch
+    if
+        type(observedAt) ~= "number"
+        or observedAt ~= observedAt
+        or math.abs(observedAt) == math.huge
+    then
+        observedAt = legacyResetEpoch(window.observed_at)
+    end
+
     return {
         label = text(window.label, "Limit"),
         remaining_percent = remaining,
         resets_at = text(window.resets_at),
         resets_at_epoch = resetsAtEpoch,
         observed_at = text(window.observed_at),
+        observed_at_epoch = observedAt,
+        stale_reason = text(window.stale_reason),
         status = text(window.status),
-        stale = window.stale ~= false,
+        stale = window.stale ~= false
+            or (resetsAtEpoch ~= nil and resetsAtEpoch <= os.time())
+            or (
+                observedAt ~= nil and (observedAt > os.time() + 60 or os.time() - observedAt > 1800)
+            ),
     }
 end
 
@@ -208,12 +228,45 @@ local function receiveSnapshot(result)
     noctalia.state.set("snapshot", snapshot)
 end
 
-local function refresh()
-    if inFlight then
+local function expireQuota()
+    if snapshot == nil then
         return
+    end
+    local now = os.time()
+    local changed = false
+    for _, account in ipairs(snapshot.accounts) do
+        for _, window in ipairs(account.windows) do
+            local observed = window.observed_at_epoch
+            if window.resets_at_epoch ~= nil and window.resets_at_epoch <= now then
+                changed = changed or not window.stale or window.stale_reason ~= "reset_passed"
+                window.stale = true
+                window.stale_reason = "reset_passed"
+            elseif observed ~= nil and (observed > now + 60 or now - observed > 1800) then
+                changed = changed or not window.stale
+                window.stale = true
+                window.stale_reason = observed > now + 60 and "clock_skew" or "observation_old"
+            end
+        end
+    end
+    if changed then
+        noctalia.state.set("snapshot", snapshot)
+    end
+end
+
+local function refresh()
+    -- Age cached provider data even while another snapshot request is pending.
+    expireQuota()
+    if inFlight then
+        if os.time() - requestStarted < 15 then
+            return
+        end
+        failure("Monitor callback deadline exceeded")
     end
 
     inFlight = true
+    requestStarted = os.time()
+    requestId = requestId + 1
+    local currentRequest = requestId
     local path = text(noctalia.getConfig("monitorPath"), "albedo-monitor")
     path = noctalia.expandPath(path)
 
@@ -226,6 +279,9 @@ local function refresh()
     end
 
     local accepted = noctalia.runAsync(argv, function(result)
+        if currentRequest ~= requestId then
+            return
+        end
         -- A plugin update can arrive before the separately packaged helper does.
         local legacyHelper = requestStartup
             and type(result) == "table"
