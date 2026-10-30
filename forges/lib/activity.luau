@@ -8,7 +8,7 @@ function Activity.months()
     local today = os.date("!*t", os.time())
     local current = today.year * 12 + today.month - 1
     local months = {}
-    for ordinal = current - 5, current do
+    for ordinal = current - 11, current do
         local year, month = math.floor(ordinal / 12), ordinal % 12 + 1
         local date = string.format("%04d-%02d", year, month)
         table.insert(months, {
@@ -36,7 +36,20 @@ function Activity.count(n)
 end
 function Activity.fromCalendar(data)
     if data.activity then
-        return data.activity
+        local months, source = Activity.months(), {}
+        for _, month in ipairs(data.activity.months) do
+            source[month.date] = month
+        end
+        for _, month in ipairs(months) do
+            local original = source[month.date]
+            for _, metric in
+                ipairs(data.activity.aggregate and { "contributions" } or Activity.metrics)
+            do
+                month.values[metric] = original and original.values[metric] or 0
+                month.lowerBounds[metric] = original and original.lowerBounds[metric] or false
+            end
+        end
+        return { months = months, aggregate = data.activity.aggregate, note = data.activity.note }
     end
     local months = Activity.months()
     local byDate = {}
@@ -44,6 +57,11 @@ function Activity.fromCalendar(data)
         byDate[month.date] = month
     end
     if data.granularity == "month" then
+        for _, month in ipairs(months) do
+            for _, metric in ipairs(Activity.metrics) do
+                month.values[metric] = 0
+            end
+        end
         for _, month in ipairs(data.months or {}) do
             local target = byDate[month.date]
             if target then
@@ -52,11 +70,8 @@ function Activity.fromCalendar(data)
         end
         return { months = months, note = "Public commits · other metrics unavailable" }
     end
-    local first, last = data.firstDate or "", data.lastDate or ""
     for _, month in ipairs(months) do
-        if month.date >= first:sub(1, 7) and month.date <= last:sub(1, 7) then
-            month.values.contributions = 0
-        end
+        month.values.contributions = 0
     end
     for _, week in ipairs(data.weeks or {}) do
         for _, day in ipairs(week.days) do
@@ -115,8 +130,11 @@ end
 function Activity.layout(activity)
     local metrics = activity.aggregate and { "contributions" } or Activity.metrics
     local points, columns, raw = {}, {}, {}
-    for i = 1, 6 do
-        columns[i] = { left = (i - 1) * 68, width = i == 6 and 208 or 68 }
+    local count = #activity.months
+    local step = 36
+    for i = 1, count do
+        columns[i] =
+            { left = (i - 1) * step, width = i == count and 548 - (count - 1) * step or step }
     end
     for _, metric in ipairs(metrics) do
         local low, high = math.huge, -math.huge
@@ -172,7 +190,7 @@ function Activity.layout(activity)
         for _, cluster in ipairs(clusters) do
             for offset, metric in ipairs(cluster.metrics) do
                 points[metric][i] = {
-                    x = columns[i].left + 8,
+                    x = columns[i].left + (i == #activity.months and 15 or 10),
                     y = clusterTop(cluster) + (offset - 1) * GAP,
                     value = month.values[metric],
                     lowerBound = month.lowerBounds[metric] == true,
@@ -226,22 +244,37 @@ function Activity.detail(activity, index, provider)
     end
     return table.concat(values, " · ")
 end
+-- Restrict the 8-bit native graph texture to each segment's vertical range.
+-- A full-height texture quantizes gentle curves into visible stair steps.
+function Activity.curveFrame(first, last, plotHeight)
+    local height = math.min(plotHeight, math.max(128, math.abs(last.y - first.y) + 32))
+    local top = math.clamp((first.y + last.y - height) / 2, 0, plotHeight - height)
+    local pad = math.min(0.18, math.max((1.5 * 0.5 + 2) / height + 0.04, 0.06))
+    return { top = top, height = height, pad = pad }
+end
 -- Sample Tangled's midpoint-control cubic at uniform x positions for ui.graph.
-function Activity.curveValues(first, last, height)
-    local start = (1 - first.y / height - 0.06) / 0.88
-    -- API34 starts its visible shader span at sample 2; keep the first anchor in that slot.
-    local values = { start, start }
-    for step = 0, 16 do
-        local x = step / 16
+function Activity.curveValues(first, last, height, top, pad)
+    top, pad = top or 0, pad or 0.06
+    local function normalized(y)
+        return (1 - (y - top) / height - pad) / (1 - 2 * pad)
+    end
+    local start = normalized(first.y)
+    -- API34 GraphStyle defaults scroll to 1: visible data starts at index 3
+    -- (Lua slot 4) and ends on the extrapolated lead sample. Guard both ends.
+    local values = { start, start, start }
+    for step = 0, 63 do
+        local x = step / 64
         local t = x
         for _ = 1, 5 do
             local position = 1.5 * t - 1.5 * t * t + t * t * t
             t -= (position - x) / (1.5 - 3 * t + 3 * t * t)
         end
         local y = first.y + (last.y - first.y) * (3 * t * t - 2 * t * t * t)
-        -- API34's shader reserves 6% at this plot height/line width; align native labels to it.
-        table.insert(values, (1 - y / height - 0.06) / 0.88)
+        table.insert(values, normalized(y))
     end
+    -- The last two real slots pin the extrapolated lead exactly to the endpoint.
+    values[#values - 1] = normalized(last.y)
+    values[#values] = normalized(last.y)
     return values
 end
 function Activity.comparison(activity, index, metric)

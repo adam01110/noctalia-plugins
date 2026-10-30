@@ -53,18 +53,19 @@ enter `owner/repository`, to view its open pull requests and issues (up to 30 ea
 All forges open on Repositories with no repository scope selected. Inspecting a
 repository switches to its work; All work (GitHub/GitLab) or Authored work
 (Tangled) returns to the cross-repository scope. All three forges share a
-**six-calendar-month activity chart**, pinned below the forge selector and above
-all queues. It preserves Tangled's six month columns, four simultaneous curved
-metric trends, collision-separated count labels and wider current-month column.
+**twelve-calendar-month activity chart**, pinned below the forge selector and above
+all queues. It uses twelve month columns, four simultaneous curved metric trends,
+compact historical totals and a wider current-month column.
 Transparent native `ui.graph` layers and explicitly transparent spacer boxes sit
 below a native label/glyph table; no
-image is generated. Hover a count for its exact value and month, or select it
-to show its exact total and previous-month comparison below the graph. There
-are no substitute metric selectors or standalone month buttons. The current
-month is partial; unavailable counts remain `—`, never fabricated zeros.
+image is generated. Hover a count for its exact value, metric and month; select
+it to highlight it. There is no inspector, explanatory footer, metric selector
+or standalone month button strip. The window includes the current partial month
+and eleven preceding months, including empty months. Missing month/metric values
+are displayed as zero; request failures still retain last-good data with an error.
 
 - **GitHub:** monthly contribution credit for commits, opened pull requests,
-  opened issues, and created repositories, fetched with six GraphQL aliases.
+  opened issues, and created repositories, fetched with twelve GraphQL aliases.
   These use GitHub's contribution eligibility rules, not all authored commits.
 - **Tangled:** public commits and returned pull/issue/repository activity from
   `org.tangled.actor.getProfileActivity`, using the authenticated account's DID.
@@ -73,18 +74,19 @@ month is partial; unavailable counts remain `—`, never fabricated zeros.
   bounds; independently computed commit totals remain exact.
   Counts reflect the API's returned/indexed public records, not private activity.
 - **GitLab:** authored merge requests and issues, counted independently of the
-  experimental calendar. Commits and repository creation are unavailable as
-  comparable metrics and remain `—`. Count queries are capped at 10,000; the
-  API's 10,001 sentinel is displayed as a lower bound. If the instance lacks
-  typed-count support, its contribution calendar is shown as an explicitly
-  aggregate contribution series instead, when available.
+  experimental calendar. Comparable commits and repository creation are not
+  supplied by this API and are displayed as zero. Count queries are capped at
+  10,000; the API's 10,001 sentinel is displayed as a lower bound. Instances
+  without typed-count support show an aggregate contribution series instead,
+  when their calendar is available.
 
 As in Tangled, each metric is scaled independently and its labels are spaced
 apart to avoid collisions; vertical positions cannot be compared across metrics.
-Curves connect
-only adjacent months with exact counts: missing or lower-bound counts leave gaps
-rather than inventing a value or change. Exact counts and bounds remain available
-in the native count labels and inspector even when a curve cannot be drawn.
+Curves connect adjacent months, including zero-filled empty months. API-truncated
+lower-bound counts leave curve gaps rather than inventing an exact change. Exact
+counts and bounds remain available in native count tooltips. Curves use 64 samples
+per segment, shader-aligned endpoint guards and 1.5-pixel antialiased strokes.
+Each native graph uses a bounded vertical range to reduce 8-bit texture stepping.
 
 Prepared graphs and selections are cached per provider, host, account and data
 version. Switching queues/forges or reopening the panel reuses native graph

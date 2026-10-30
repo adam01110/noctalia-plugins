@@ -248,7 +248,8 @@ local function curveLayers(cached)
                 and not first.lowerBound
                 and not last.lowerBound
             then
-                local left, width = first.x + 7, last.x - first.x
+                local left, width = first.x, last.x - first.x
+                local frame = Activity.curveFrame(first, last, layout.height)
                 table.insert(
                     layers,
                     ui.row({
@@ -258,15 +259,28 @@ local function curveLayers(cached)
                         gap = 0,
                     }, {
                         ui.box({ width = left, height = layout.height, fill = "#00000000" }),
-                        ui.graph({
-                            key = "activity-curve-" .. metric .. "-" .. tostring(i),
-                            width = width,
-                            height = layout.height,
-                            values = Activity.curveValues(first, last, layout.height),
-                            color = last.value >= first.value and "primary" or "error",
-                            lineWidth = 1,
-                            fillOpacity = 0,
-                            opacity = 0.35,
+                        ui.column({ width = width, height = layout.height, gap = 0 }, {
+                            ui.box({ height = frame.top, fill = "#00000000" }),
+                            ui.graph({
+                                key = "activity-curve-" .. metric .. "-" .. tostring(i),
+                                width = width,
+                                height = frame.height,
+                                values = Activity.curveValues(
+                                    first,
+                                    last,
+                                    frame.height,
+                                    frame.top,
+                                    frame.pad
+                                ),
+                                color = last.value >= first.value and "primary/0.65"
+                                    or "error/0.65",
+                                lineWidth = 1.5,
+                                fillOpacity = 0,
+                            }),
+                            ui.box({
+                                height = layout.height - frame.top - frame.height,
+                                fill = "#00000000",
+                            }),
                         }),
                         ui.box({
                             width = layout.width - left - width,
@@ -310,6 +324,10 @@ local function activityStat(cached, metric, index)
             maxLines = 1,
         }),
     }
+    if not current then
+        -- Historical columns are compact; names/icons remain in the tooltip.
+        table.remove(children, 1)
+    end
     local previous = layout.points[metric][index - 1]
     if
         previous
@@ -317,7 +335,7 @@ local function activityStat(cached, metric, index)
         and point.value ~= nil
         and not previous.lowerBound
         and not point.lowerBound
-        and (current or #text <= 3)
+        and current
     then
         local delta = point.value - previous.value
         table.insert(
@@ -333,6 +351,7 @@ local function activityStat(cached, metric, index)
     return ui.row({
         key = "activity-stat-" .. month.date .. "-" .. metric,
         height = 26,
+        width = current and layout.columns[index].width - 16 or nil,
         gap = 3,
         align = "center",
         fill = (current or selected) and "surface_variant" or "surface",
@@ -372,7 +391,7 @@ local function activityLabels(cached)
             ui.label({
                 text = month.label .. (i == #cached.data.months and " · now" or ""),
                 height = 24,
-                fontSize = 12,
+                fontSize = 10,
                 maxLines = 1,
                 color = i == #cached.data.months and "on_surface" or "on_surface_variant",
             })
@@ -391,7 +410,7 @@ local function activityLabels(cached)
                 width = layout.columns[i].width - (i > 1 and 1 or 0),
                 height = layout.height,
                 gap = 0,
-                paddingH = i > 1 and 7 or 8,
+                paddingH = i == #cached.data.months and 7 or (i > 1 and 3 or 4),
                 align = "start",
             }, children)
         )
@@ -426,7 +445,7 @@ local function contributionSection()
             }),
         })
     end
-    local data, layout = cached.data, cached.layout
+    local layout = cached.layout
     local current = layout.columns[#layout.columns]
     local layers = {
         ui.row(
@@ -445,11 +464,8 @@ local function contributionSection()
         table.insert(layers, curve)
     end
     table.insert(layers, activityLabels(cached))
-    local index = monthIndex(cached)
-    local month, metric = data.months[index], cached.metric
-    local change, color = Activity.comparison(data, index, metric)
     local children = {
-        label("Activity · last 6 months", 14),
+        label("Activity · last 12 months", 14),
         -- API34 Flex preserves negative gaps: equal-height layers share the same origin.
         ui.column({
             key = "activity-overlay",
@@ -457,30 +473,7 @@ local function contributionSection()
             height = layout.height,
             gap = -layout.height,
         }, layers),
-        ui.row(
-            { key = "activity-inspector", justify = "space_between", align = "center", gap = 6 },
-            {
-                label(
-                    month.date
-                        .. " · "
-                        .. Activity.valueText(
-                            month.values[metric],
-                            month.lowerBounds[metric],
-                            false
-                        )
-                        .. " "
-                        .. Activity.metricName(metric, snapshot.provider),
-                    12,
-                    "on_surface"
-                ),
-                label(change, 11, color),
-            }
-        ),
-        label("Independent scales · current month partial · select a count for details", 11),
     }
-    if data.note and data.note ~= "" then
-        table.insert(children, label(data.note, 11))
-    end
     if (snapshot.errors or {}).contributions then
         table.insert(children, label(snapshot.errors.contributions, 11, "error"))
     end

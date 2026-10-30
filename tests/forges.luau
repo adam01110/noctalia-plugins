@@ -349,19 +349,19 @@ local function glCalendar(login, count)
 end
 local function glActivityFixture(login)
     local raw = { data = { currentUser = { username = login or "student" } } }
-    for i = 1, 6 do
-        raw.data.currentUser["pulls" .. tostring(i)] = { count = i }
-        raw.data["issues" .. tostring(i)] = { count = i == 6 and 10001 or 0 }
+    for i = 1, 12 do
+        raw.data.currentUser["pulls" .. tostring(i)] = { count = (i - 1) % 6 + 1 }
+        raw.data["issues" .. tostring(i)] = { count = i == 12 and 10001 or 0 }
     end
     return raw
 end
 local typedGitLab = assert(GitLab.normalizeActivity(glActivityFixture(), "student"))
-assert(typedGitLab.months[6].values.pulls == 6 and typedGitLab.months[6].values.issues == 10001)
-assert(typedGitLab.months[6].lowerBounds.issues and not typedGitLab.months[6].lowerBounds.pulls)
-assert(typedGitLab.months[6].values.commits == nil and typedGitLab.months[6].values.repos == nil)
+assert(typedGitLab.months[12].values.pulls == 6 and typedGitLab.months[12].values.issues == 10001)
+assert(typedGitLab.months[12].lowerBounds.issues and not typedGitLab.months[12].lowerBounds.pulls)
+assert(typedGitLab.months[12].values.commits == nil and typedGitLab.months[12].values.repos == nil)
 assert(not GitLab.normalizeActivity(glActivityFixture("other"), "student"))
 local invalidTyped = glActivityFixture()
-invalidTyped.data.issues6.count = 10002
+invalidTyped.data.issues12.count = 10002
 assert(not GitLab.normalizeActivity(invalidTyped, "student"))
 invalidTyped = glActivityFixture()
 invalidTyped.data.currentUser.pulls1.count = -1
@@ -767,7 +767,7 @@ unsupportedCalendar()
 respond(glRepos)
 respond(glProfile) -- Postflight identity for typed activity.
 respond(glProfile) -- Postflight identity for repositories.
-assert(#queue == 0 and snapshot().contributions.activity.months[6].values.pulls == 6)
+assert(#queue == 0 and snapshot().contributions.activity.months[12].values.pulls == 6)
 assert(not snapshot().errors.contributions and not snapshot().contributions.weeks)
 send({ op = "view", view = "overview" })
 assert(
@@ -811,7 +811,7 @@ respond(glRepos)
 respond(glProfile)
 assert(
     snapshot().versions.activity == typedVersion
-        and snapshot().contributions.activity.months[6].values.pulls == 6
+        and snapshot().contributions.activity.months[12].values.pulls == 6
 )
 assert(snapshot().errors.contributions and #queue == 0)
 send({ op = "view", view = "overview" })
@@ -878,7 +878,7 @@ respondGh({ { full_name = "octocat/example", description = "Example" } })
 assert(
     snapshot().status == "ready"
         and snapshot().view == "repositories"
-        and snapshot().contributions.activity.months[6].values.commits > 0
+        and snapshot().contributions.activity.months[12].values.commits > 0
         and #queue == 0
 )
 send({ op = "view", view = "repositories" })
@@ -1152,19 +1152,21 @@ table.remove(
 local partialData = assert(Data.contributions(partialWeek))
 assert(partialData.weeks[1].days[1] == false and partialData.weeks[1].days[2] ~= false)
 
--- Six calendar months, not a rolling day-count window; preserve year/leap boundaries.
+-- Twelve calendar months, not a rolling day-count window; preserve year/leap boundaries.
 local activityClock = clock
 clock = systemTime({ year = 2024, month = 2, day = 29, hour = 12 })
 local chartMonths = Activity.months()
-assert(#chartMonths == 6 and chartMonths[1].date == "2023-09" and chartMonths[6].date == "2024-02")
+assert(
+    #chartMonths == 12 and chartMonths[1].date == "2023-03" and chartMonths[12].date == "2024-02"
+)
 local monthlyQuery = GitHub.contributions()[5]
-assert(monthlyQuery:find('from: "2023-09-01T00:00:00Z"', 1, true))
+assert(monthlyQuery:find('from: "2023-03-01T00:00:00Z"', 1, true))
 assert(monthlyQuery:find('to: "2024-01-31T23:59:59Z"', 1, true))
 local metricFixture = { data = { viewer = { login = "octocat" } } }
 for i, month in ipairs(chartMonths) do
     metricFixture.data.viewer["activity" .. tostring(i)] = {
         startedAt = month.date .. "-01T00:00:00Z",
-        totalCommitContributions = 700 - i * 100,
+        totalCommitContributions = 1300 - i * 100,
         totalPullRequestContributions = i * 10,
         totalIssueContributions = 5,
         totalRepositoryContributions = i % 3,
@@ -1174,7 +1176,7 @@ local multiActivity = assert(Activity.github(metricFixture))
 local chartLayout = Activity.layout(multiActivity)
 assert(chartLayout.points.pulls[1].y > chartLayout.points.pulls[6].y)
 assert(chartLayout.points.commits[1].y < chartLayout.points.commits[6].y)
-assert(chartLayout.columns[6].width == 208)
+assert(chartLayout.columns[12].width == 152)
 local badMetric = copy(metricFixture)
 badMetric.data.viewer.activity3.totalCommitContributions = -1
 assert(not Activity.github(badMetric))
@@ -1187,21 +1189,26 @@ tgFull.months[1].pulls = { {} }
 tgFull.months[1].issues = {}
 tgFull.months[1].repos = { {}, {} }
 local fullActivity = assert(Tangled.normalizeContributions(tgFull, "alice.test")).activity
-assert(fullActivity.months[6].values.commits == 4)
-assert(fullActivity.months[6].values.pulls == 1 and fullActivity.months[6].values.repos == 2)
-assert(fullActivity.months[6].values.issues == 0 and not fullActivity.months[6].lowerBounds.pulls)
+assert(fullActivity.months[12].values.commits == 4)
+assert(fullActivity.months[12].values.pulls == 1 and fullActivity.months[12].values.repos == 2)
+assert(fullActivity.months[12].values.issues == 0 and not fullActivity.months[12].lowerBounds.pulls)
 tgFull.truncated = true
 local partialActivity = assert(Tangled.normalizeContributions(tgFull, "alice.test")).activity
 assert(
-    partialActivity.months[6].values.commits == 4
-        and not partialActivity.months[6].lowerBounds.commits
+    partialActivity.months[12].values.commits == 4
+        and not partialActivity.months[12].lowerBounds.commits
 )
-assert(partialActivity.months[6].lowerBounds.pulls and partialActivity.months[1].lowerBounds.issues)
+assert(
+    partialActivity.months[12].lowerBounds.pulls and partialActivity.months[1].lowerBounds.issues
+)
 tgFull.months[1].pulls = "invalid"
 assert(not Tangled.normalizeContributions(tgFull, "alice.test"))
 local aggregateActivity = Activity.fromCalendar(normalCalendar)
-assert(aggregateActivity.aggregate and aggregateActivity.months[6].values.contributions == 4)
-assert(aggregateActivity.months[6].values.commits == nil, "Aggregate contributions are not commits")
+assert(aggregateActivity.aggregate and aggregateActivity.months[12].values.contributions == 4)
+assert(
+    aggregateActivity.months[12].values.commits == nil,
+    "Aggregate contributions are not commits"
+)
 local unknownLayout = Activity.layout({ months = Activity.months() })
 for _, metric in ipairs(Activity.metrics) do
     for _, point in ipairs(unknownLayout.points[metric]) do
@@ -1209,7 +1216,7 @@ for _, metric in ipairs(Activity.metrics) do
     end
 end
 print(
-    "Forges activity: six-month boundaries, monthly credit, truncation, aggregate fallback and Tangled layout passed"
+    "Forges activity: twelve-month boundaries, monthly credit, truncation, aggregate fallback and Tangled layout passed"
 )
 
 local ui = setmetatable({}, {
@@ -1436,10 +1443,10 @@ assert(find("button", function(props)
     return props.text == "Load older notifications"
 end)).props.onClick()
 assert(lastCommand.op == "notifications_more")
--- The original six-month/four-curve graph is native, not a selector or image.
+-- The original twelve-month/four-curve graph is native, not a selector or image.
 local interactiveActivity = { months = Activity.months(), note = "GitHub contribution credit" }
 for i, month in ipairs(interactiveActivity.months) do
-    month.values = { pulls = i * 2, commits = 70 - i * 10, repos = i % 2, issues = 3 }
+    month.values = { pulls = i * 2, commits = 130 - i * 10, repos = i % 2, issues = 3 }
 end
 local graphSnapshot = {
     provider = "github",
@@ -1468,10 +1475,18 @@ local function hasText(text)
     end) ~= nil
 end
 local function inspector(text)
-    local section = assert(find("row", function(props)
-        return props.key == "activity-inspector"
-    end))
-    return section.children[1].props.text == text
+    local selected = find("row", function(props)
+        return props.tooltip == text and (props.key or ""):find("activity-stat-", 1, true) == 1
+    end)
+    if not selected then
+        return false
+    end
+    for _, child in ipairs(selected.children) do
+        if child.kind == "label" and child.props.color == "primary" then
+            return true
+        end
+    end
+    return false
 end
 local function graphCount()
     local count = 0
@@ -1490,7 +1505,7 @@ local overlay = assert(find("column", function(props)
     return props.key == "activity-overlay"
 end))
 assert(overlay.props.gap == -210 and overlay.props.height == 210 and overlay.props.width == 548)
-assert(graphCount() == 20 and nodeCreations - beforeChartNodes < 300)
+assert(graphCount() == 44 and nodeCreations - beforeChartNodes < 650)
 -- Exercise the same cursor rule as API34 Flex::runLayout: each layer advances height + negative gap.
 local cursor = 0
 for _, layer in ipairs(overlay.children) do
@@ -1501,8 +1516,8 @@ for _, layer in ipairs(overlay.children) do
     cursor += layer.props.height + overlay.props.gap
 end
 local labelLayer = overlay.children[#overlay.children]
-assert(labelLayer.props.key == "activity-labels" and #labelLayer.children == 6)
-assert(labelLayer.children[1].props.width == 68 and labelLayer.children[6].props.width == 208)
+assert(labelLayer.props.key == "activity-labels" and #labelLayer.children == 12)
+assert(labelLayer.children[1].props.width == 36 and labelLayer.children[12].props.width == 152)
 -- API34 Box inherits an opaque black fill when fill is absent.
 -- Later curve spacers and the topmost label spacers must not erase earlier curves.
 local transparentSpacers, dividers, highlights = 0, 0, 0
@@ -1515,24 +1530,56 @@ walk(overlay, function(node)
             assert(node.props.width == 1)
             dividers += 1
         else
-            assert(node.props.fill == "surface_variant" and node.props.width == 208)
+            assert(node.props.fill == "surface_variant" and node.props.width == 152)
             highlights += 1
         end
     end
 end)
-assert(transparentSpacers > 41 and dividers == 5 and highlights == 1)
+assert(transparentSpacers > 41 and dividers == 11 and highlights == 1)
+assert(not find("row", function(props)
+    return props.key == "activity-inspector"
+end))
+assert(not hasText("GitHub contribution credit"))
+assert(not hasText("Independent scales · current month partial · select a count for details"))
 local expected = Activity.layout(interactiveActivity)
+for _, layer in ipairs(overlay.children) do
+    local metric, index = (layer.props.key or ""):match("^activity%-curve%-layer%-(%a+)%-(%d+)$")
+    if metric then
+        local first = expected.points[metric][tonumber(index)]
+        local last = expected.points[metric][tonumber(index) + 1]
+        assert(
+            layer.children[1].props.width == first.x,
+            "Curve origin aligns with its label anchor"
+        )
+        assert(layer.children[2].props.width == last.x - first.x)
+        local band = layer.children[2]
+        assert(
+            math.abs(
+                band.children[1].props.height
+                    + band.children[2].props.height
+                    + band.children[3].props.height
+                    - 210
+            ) < 0.000001
+        )
+    end
+end
 walk(lastPanel, function(node)
     if node.kind == "graph" then
         assert(
-            node.props.fillOpacity == 0 and node.props.height == 210 and node.props.opacity == 0.35
+            node.props.fillOpacity == 0 and node.props.height <= 210 and node.props.lineWidth == 1.5
         )
         local metric, number = node.props.key:match("^activity%-curve%-(%a+)%-(%d+)$")
         local first, last =
             expected.points[metric][tonumber(number)], expected.points[metric][tonumber(number) + 1]
-        assert(node.props.color == (last.value >= first.value and "primary" or "error"))
-        assert(math.abs(210 * (1 - (0.06 + 0.88 * node.props.values[3])) - first.y) < 0.000001)
-        assert(math.abs(210 * (1 - (0.06 + 0.88 * node.props.values[19])) - last.y) < 0.000001)
+        assert(node.props.color == (last.value >= first.value and "primary/0.65" or "error/0.65"))
+        local frame = Activity.curveFrame(first, last, 210)
+        local function nativeY(value)
+            return frame.top + frame.height * (1 - frame.pad - (1 - 2 * frame.pad) * value)
+        end
+        assert(#node.props.values == 67)
+        assert(math.abs(nativeY(node.props.values[4]) - first.y) < 0.000001)
+        assert(math.abs(nativeY(node.props.values[67]) - last.y) < 0.000001)
+        assert(node.props.values[66] == node.props.values[67], "No extrapolated overshoot")
     end
 end)
 assert(not wantsFrames and not secondTicks and imageWrites == 0)
@@ -1544,32 +1591,32 @@ assert(not find("button", function(props)
 end), "No substitute metric/month button strips")
 assert(lastPanel.children[3].props.key == "activity-section")
 assert(
-    hasText("12 pull requests")
+    hasText("24 pull requests")
         and hasText("10 commits")
         and hasText("0 new repos")
         and hasText("3 issues")
 )
 stat("commits", 2).props.onClick()
-assert(inspector(interactiveActivity.months[2].date .. " · 50 commits"))
-assert(hasText("↘ -10 vs " .. interactiveActivity.months[1].label))
+assert(inspector(interactiveActivity.months[2].date .. " · 110 commits"))
+assert(not hasText("↘ -10 vs " .. interactiveActivity.months[1].label))
 assert(
-    nativeTrend() == originalGraph and graphCount() == 20,
+    nativeTrend() == originalGraph and graphCount() == 44,
     "Selecting a native label preserves all four curves"
 )
 stat("repos", 1).props.onClick()
 assert(inspector(interactiveActivity.months[1].date .. " · 1 new repos"))
-stat("issues", 6).props.onClick()
-assert(inspector(interactiveActivity.months[6].date .. " · 3 issues"))
+stat("issues", 12).props.onClick()
+assert(inspector(interactiveActivity.months[12].date .. " · 3 issues"))
 stat("commits", 2).props.onClick()
 local retainedStat = stat("commits", 2)
 noctalia.state.set("forges.snapshot", graphSnapshot)
 assert(
     nativeTrend() == originalGraph
-        and inspector(interactiveActivity.months[2].date .. " · 50 commits")
+        and inspector(interactiveActivity.months[2].date .. " · 110 commits")
 )
 settings["color.primary"] = "#bbccdd"
 assert(
-    originalGraph.props.color == "primary" and not secondTicks,
+    originalGraph.props.color == "primary/0.65" and not secondTicks,
     "Native colors need no image regeneration"
 )
 onClose()
@@ -1596,10 +1643,10 @@ assert(
     calls == chartCalls and imageWrites == 0,
     "Label inspection issues no requests or image writes"
 )
--- Date-based selection survives the six-month window shifting by one month.
+-- Date-based selection survives the twelve-month window shifting by one month.
 local shifted = copy(refreshed)
 table.remove(shifted.months, 1)
-local year, number = shifted.months[5].date:match("^(%d+)%-(%d+)$")
+local year, number = shifted.months[11].date:match("^(%d+)%-(%d+)$")
 local ordinal = tonumber(year) * 12 + tonumber(number)
 local nextMonth = ordinal % 12 + 1
 table.insert(shifted.months, {
@@ -1617,7 +1664,7 @@ local unknownSnapshot = copy(graphSnapshot)
 unknownSnapshot.contributions, unknownSnapshot.versions =
     { activity = { months = Activity.months() } }, { contributions = 4 }
 noctalia.state.set("forges.snapshot", unknownSnapshot)
-assert(not nativeTrend() and hasText("— commits") and stat("commits", 6).props.onClick == nil)
+assert(nativeTrend() and hasText("0 commits") and stat("commits", 12).props.onClick ~= nil)
 noctalia.state.set("forges.snapshot", graphSnapshot)
 stat("commits", 2).props.onClick()
 local tgCalendar = copy(graphData)
@@ -1672,7 +1719,7 @@ assert(not wantsFrames and lastPanel.children[3].props.key == "activity-section"
 assert(not find("label", function(props)
     return props.text:find("Current streak", 1, true) ~= nil
 end))
-stat("commits", 6, tgMonthly.activity).props.onClick()
+stat("commits", 12, tgMonthly.activity).props.onClick()
 assert(find("label", function(props)
     return props.text == "4 commits"
 end))
@@ -1733,17 +1780,17 @@ assert(find("button", function(props)
     return props.text == "Load older to-dos"
 end)).props.onClick()
 assert(lastCommand.op == "notifications_more")
-assert(stat("commits", 6, typedGitLab).props.onClick == nil)
-assert(stat("repos", 6, typedGitLab).props.onClick == nil)
-assert(hasText("6 merge requests") and hasText("— commits"))
+assert(stat("commits", 12, typedGitLab).props.onClick ~= nil)
+assert(stat("repos", 12, typedGitLab).props.onClick ~= nil)
+assert(hasText("6 merge requests") and hasText("0 commits"))
 local retainedGitLabGraph = assert(nativeTrend())
-stat("issues", 6, typedGitLab).props.onClick()
-assert(inspector(typedGitLab.months[6].date .. " · 10001+ issues"))
-assert(hasText("Lower bound · exact change unavailable") and graphCount() == 9)
+stat("issues", 12, typedGitLab).props.onClick()
+assert(inspector(typedGitLab.months[12].date .. " · 10001+ issues"))
+assert(not hasText("Lower bound · exact change unavailable") and graphCount() == 43)
 assert(not find("graph", function(props)
-    return props.key == "activity-curve-issues-5"
+    return props.key == "activity-curve-issues-11"
 end), "Never treat the capped count as exact")
-stat("pulls", 6, typedGitLab).props.onClick()
+stat("pulls", 12, typedGitLab).props.onClick()
 local retainedSnapshot = copy(values["forges.snapshot"])
 noctalia.state.set("forges.snapshot", graphSnapshot)
 local retainedGitHubGraph, previousAccountStat = assert(nativeTrend()), stat("commits", 2)
@@ -1766,7 +1813,7 @@ anotherAccount.account = "another-account"
 noctalia.state.set("forges.snapshot", anotherAccount)
 assert(
     nativeTrend() ~= retainedGitHubGraph
-        and inspector(interactiveActivity.months[6].date .. " · 12 pull requests")
+        and inspector(interactiveActivity.months[12].date .. " · 24 pull requests")
 )
 local accountRenders = panelRenders
 previousAccountStat.props.onClick()
@@ -1855,5 +1902,5 @@ noctalia.state.set(
 )
 assert(tooltip:find("GitLab", 1, true))
 print(
-    "Forges: GitLab custom hosts, nested groups, merge requests/issues, instance/account invalidation, native stacked curves, six-column label table and exact-count selection, palette roles, zero image writes, independent profile actions, provider/resource caches, inbox history/filters, account invalidation, race/error recovery and native surfaces passed"
+    "Forges: GitLab custom hosts, nested groups, merge requests/issues, instance/account invalidation, native stacked curves, twelve-column label table and exact-count selection, palette roles, zero image writes, independent profile actions, provider/resource caches, inbox history/filters, account invalidation, race/error recovery and native surfaces passed"
 )

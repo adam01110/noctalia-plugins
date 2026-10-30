@@ -454,7 +454,9 @@ local function loadView(ctx, force)
         local requestedMonths = Activity.months()
         request(ctx, ctx.activity, GitLab.activity(gitlabHost, ctx.account), function(raw)
             -- A response crossing a UTC month boundary belongs to the previous chart window.
-            if requestedMonths[6].date ~= Activity.months()[6].date then
+            if
+                requestedMonths[#requestedMonths].date ~= Activity.months()[#requestedMonths].date
+            then
                 return nil
             end
             return GitLab.normalizeActivity(raw, ctx.account)

@@ -191,7 +191,7 @@ function Tangled.normalizeContributions(raw, login)
     local activityMonths = Activity.months()
     local listEntries = 0
     for i, month in ipairs(activityMonths) do
-        local ordinal = current - 6 + i
+        local ordinal = current - #activityMonths + i
         local source = sources[ordinal]
         month.values.commits = counts[ordinal] or 0
         for _, metric in ipairs({ "pulls", "issues", "repos" }) do
