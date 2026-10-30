@@ -142,7 +142,7 @@ local function accountSegment(account, index, selected, online, radius)
     if selected ~= nil then
         children[#children + 1] = windowMeter(account, selected, 1, online, radius)
     else
-        local value = "Unavailable"
+        local value = nil
         if account.error == "" then
             for _, window in ipairs(account.windows) do
                 if windowValue(account, window, online) == "Stale" then
@@ -150,6 +150,9 @@ local function accountSegment(account, index, selected, online, radius)
                     break
                 end
             end
+        end
+        if value == nil then
+            return nil
         end
         children[#children + 1] =
             ui.label({ text = value, fontSize = 12, color = "on_surface_variant" })
@@ -262,8 +265,11 @@ local function render()
 
     for index, account in ipairs(accounts) do
         local selected = relevantWindow(account, online)
-        rows[#rows + 1] = ui.box({ width = 1, height = 14, fill = "outline/0.35" })
-        rows[#rows + 1] = accountSegment(account, index, selected, online, 2 * scale)
+        local segment = accountSegment(account, index, selected, online, 2 * scale)
+        if segment ~= nil then
+            rows[#rows + 1] = ui.box({ width = 1, height = 14, fill = "outline/0.35" })
+            rows[#rows + 1] = segment
+        end
         tooltip[#tooltip + 1] = accountTooltip(account, online, selected)
     end
 

@@ -32,7 +32,8 @@ still works; automatic startup requires an updated helper.
 - Each account gets one compact meter and **remaining** percentage, choosing the
   fresh five-hour window unless the seven-day window has 5% or less remaining.
   If the five-hour window is unavailable, the lowest fresh, healthy window is used.
-  Accounts without a current reading show `Stale` or `Unavailable`.
+  Accounts with only old measurements show `Stale`. Accounts without usable quota
+  are omitted from the bar, but remain in the tooltip and panel.
   Provider/account names and other windows stay in the tooltip and panel.
 - The panel shows only working or waiting sessions, including child agents.
   Session and account cards follow the shell’s corner-radius setting. Account
@@ -52,8 +53,8 @@ still works; automatic startup requires an updated helper.
   overwrite recovery.
 
 The service reads a snapshot every minute by default, once per plugin even with
-several widgets. All returned accounts appear in the bar, with one relevant
-window each; its width grows with the connected inventory.
+several widgets. Accounts with measured quota appear in the bar, with one relevant
+window each; unsupported or unavailable accounts consume no bar space.
 Panel lists show at most 60 active sessions (working first), 40 accounts and
 20 windows per account, with an overflow count. The helper also reports daemon
 pagination or quota limits.

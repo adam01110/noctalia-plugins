@@ -227,6 +227,9 @@ assert(state.snapshot.sessions[1].status == "working")
 assert(lastBar.children[2].props.text == "2" and lastBar.children[2].props.color == "primary")
 contains(lastBar, "63%")
 assert(#collectNodes(lastBar, "progress") == 1)
+assert(#lastBar.children == 4, "Unavailable accounts must not add a bar segment or separator")
+assert(#collectNodes(lastBar, "glyph") == 2, "Only activity and measured quota need icons")
+assert(not string.find(texts(lastBar), "Unavailable", 1, true))
 assert(not string.find(texts(lastBar), " left", 1, true))
 assert(not string.find(texts(lastBar), " active", 1, true))
 local function assertReadableText(tree)
@@ -553,6 +556,27 @@ tooltipContains("codex · Default · first-accoun")
 tooltipContains("codex · Default · other-accoun")
 tooltipContains("first-accoun")
 assert(#collectNodes(lastBar, "progress") == 0)
+assert(#lastBar.children == 2, "Accounts with no quota must leave only the activity indicator")
+contains(lastPanel, "first-accoun")
+contains(lastPanel, "other-accoun")
+contains(lastPanel, "Quota unavailable")
+
+local unsupported = sample()
+unsupported.accounts[2].provider = "opencode-go"
+unsupported.accounts[2].error = "quota_unsupported"
+unsupported.accounts[3] = {
+    provider = "openai",
+    account = "OpenRouter",
+    error = "quota_unavailable",
+    windows = {},
+}
+request()
+reply(unsupported)
+assert(#lastBar.children == 4, "Only the supported account gets a bar segment")
+tooltipContains("opencode-go · two")
+tooltipContains("openai · OpenRouter")
+contains(lastPanel, "OpenRouter")
+contains(lastPanel, "quota_unsupported")
 
 request()
 reply({ version = 1, online = true, error = "", sessions = {}, accounts = {} })

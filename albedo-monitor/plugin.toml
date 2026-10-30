@@ -1,6 +1,6 @@
 id = "adam0/albedo-monitor"
 name = "Albedo Monitor"
-version = "0.1.2"
+version = "0.1.3"
 plugin_api = 34
 author = "adam0"
 license = "MIT"
