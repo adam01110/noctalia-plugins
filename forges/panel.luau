@@ -233,6 +233,7 @@ end
 local function activeChart(cached)
     return opened and activityCaches[snapshot.provider] == cached
 end
+-- Native Box starts with an opaque black fill; plot spacers must explicitly clear it.
 local function curveLayers(cached)
     if cached.curves then
         return cached.curves
@@ -256,7 +257,7 @@ local function curveLayers(cached)
                         height = layout.height,
                         gap = 0,
                     }, {
-                        ui.box({ width = left, height = layout.height }),
+                        ui.box({ width = left, height = layout.height, fill = "#00000000" }),
                         ui.graph({
                             key = "activity-curve-" .. metric .. "-" .. tostring(i),
                             width = width,
@@ -267,7 +268,11 @@ local function curveLayers(cached)
                             fillOpacity = 0,
                             opacity = 0.35,
                         }),
-                        ui.box({ width = layout.width - left - width, height = layout.height }),
+                        ui.box({
+                            width = layout.width - left - width,
+                            height = layout.height,
+                            fill = "#00000000",
+                        }),
                     })
                 )
             end
@@ -356,12 +361,12 @@ local function activityLabels(cached)
         for _, metric in ipairs(sorted) do
             local top = layout.points[metric][i].y - 13
             if top > cursor then
-                table.insert(children, ui.box({ height = top - cursor }))
+                table.insert(children, ui.box({ height = top - cursor, fill = "#00000000" }))
             end
             table.insert(children, activityStat(cached, metric, i))
             cursor = top + 26
         end
-        table.insert(children, ui.box({ height = 186 - cursor }))
+        table.insert(children, ui.box({ height = 186 - cursor, fill = "#00000000" }))
         table.insert(
             children,
             ui.label({
@@ -427,7 +432,7 @@ local function contributionSection()
         ui.row(
             { key = "activity-backdrop", width = layout.width, height = layout.height, gap = 0 },
             {
-                ui.box({ width = current.left, height = layout.height }),
+                ui.box({ width = current.left, height = layout.height, fill = "#00000000" }),
                 ui.box({
                     width = current.width,
                     height = layout.height,

@@ -1503,6 +1503,24 @@ end
 local labelLayer = overlay.children[#overlay.children]
 assert(labelLayer.props.key == "activity-labels" and #labelLayer.children == 6)
 assert(labelLayer.children[1].props.width == 68 and labelLayer.children[6].props.width == 208)
+-- API34 Box inherits an opaque black fill when fill is absent.
+-- Later curve spacers and the topmost label spacers must not erase earlier curves.
+local transparentSpacers, dividers, highlights = 0, 0, 0
+walk(overlay, function(node)
+    if node.kind == "box" then
+        assert(node.props.fill ~= nil, "Chart boxes must not inherit opaque black fill")
+        if node.props.fill == "#00000000" then
+            transparentSpacers += 1
+        elseif node.props.fill == "outline/0.25" then
+            assert(node.props.width == 1)
+            dividers += 1
+        else
+            assert(node.props.fill == "surface_variant" and node.props.width == 208)
+            highlights += 1
+        end
+    end
+end)
+assert(transparentSpacers > 41 and dividers == 5 and highlights == 1)
 local expected = Activity.layout(interactiveActivity)
 walk(lastPanel, function(node)
     if node.kind == "graph" then

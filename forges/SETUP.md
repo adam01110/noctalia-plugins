@@ -56,7 +56,8 @@ repository switches to its work; All work (GitHub/GitLab) or Authored work
 **six-calendar-month activity chart**, pinned below the forge selector and above
 all queues. It preserves Tangled's six month columns, four simultaneous curved
 metric trends, collision-separated count labels and wider current-month column.
-Transparent native `ui.graph` layers sit below a native label/glyph table; no
+Transparent native `ui.graph` layers and explicitly transparent spacer boxes sit
+below a native label/glyph table; no
 image is generated. Hover a count for its exact value and month, or select it
 to show its exact total and previous-month comparison below the graph. There
 are no substitute metric selectors or standalone month buttons. The current
