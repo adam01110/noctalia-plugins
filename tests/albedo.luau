@@ -692,10 +692,16 @@ contains(lastBar, "80%")
 assert(not string.find(texts(lastBar), "13%", 1, true))
 tooltipContains("Bar · Session: 80%")
 
-for _, labels in ipairs({ { "5 hours", "7 days" }, { "5h", "7d" }, { "Session", "Weekly" } }) do
+for _, labels in ipairs({
+    { "5 hours", "7 days" },
+    { "5h", "7d" },
+    { "Session", "Weekly" },
+    { "5h window", "7d window" },
+}) do
     for _, case in ipairs({
         { weekly = 13, session = 80, expected = 80 },
-        { weekly = 5, session = 80, expected = 80 },
+        { weekly = 5.01, session = 80, expected = 80 },
+        { weekly = 5, session = 80, expected = 5 },
         { weekly = 4.99, session = 80, expected = 4.99 },
         { weekly = 0, session = 80, expected = 0 },
         { weekly = 4, session = 1, expected = 4 },

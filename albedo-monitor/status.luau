@@ -98,14 +98,24 @@ local function relevantWindow(account, online)
                 selected = window
             end
             local label = string.lower(window.label)
-            if label == "5 hours" or label == "5h" or label == "session" then
+            if
+                label == "5 hours"
+                or label == "5h"
+                or label == "5h window"
+                or label == "session"
+            then
                 session = window
-            elseif label == "7 days" or label == "7d" or label == "weekly" then
+            elseif
+                label == "7 days"
+                or label == "7d"
+                or label == "7d window"
+                or label == "weekly"
+            then
                 weekly = window
             end
         end
     end
-    if weekly ~= nil and weekly.remaining_percent < 5 then
+    if weekly ~= nil and weekly.remaining_percent <= 5 then
         return weekly
     end
     return session or selected
